@@ -9,6 +9,11 @@
     "start": "electron .",
     "reset-db": "node reset-db.js",
     "import-guests": "node import-guests.js",
+    "lint": "eslint .",
+    "circular": "node scripts/circular.js",
+    "test:unit": "jest --runInBand --silent tests/unit",
+    "test:e2e": "node tests/e2e/run.js",
+    "test:all": "npm run lint && npm run circular && npm run test:unit && npm run test:e2e",
     "build": "electron-builder --win",
     "builder": "electron-builder --win",
     "dist": "electron-builder --win",
@@ -21,8 +26,14 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "acorn": "^8.18.0",
     "electron": "^29.4.6",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "jest": "^30.5.2",
+    "madge": "^8.0.0",
+    "playwright": "^1.63.0"
   },
   "build": {
     "appId": "com.rayhana.suites",
