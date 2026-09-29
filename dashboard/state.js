@@ -10,5 +10,7 @@ export const dashboardState = {
   currentRoomSearch: '',
   currentRoomBookingType: 'all',
   monthlyRevenueChart: null,
-  roomStatusChart: null
+  roomStatusChart: null,
+  currentInvoiceReservationId: null,
+  currentInvoiceData: null
 };
