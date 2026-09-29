@@ -3,6 +3,7 @@ import { getBookingTypeBadge, getPaymentStatusBadge, getReservationStatusBadge, 
 import { STORAGE_KEYS } from './dashboard/constants.js';
 import { createNavigation } from './dashboard/navigation.js';
 import { createEditGuestModal } from './dashboard/guest-modal.js';
+import { createEditRoomModal } from './dashboard/room-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -2270,76 +2271,19 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     }
   });
 
-  // Edit Room Modal Functions
-  function openEditRoomModal(roomId) {
-    const room = dashboardState.roomsCache.find(r => r.id === parseInt(roomId, 10));
-    if (!room) {
-      showToast('لم يتم العثور على بيانات الغرفة.', 'error');
-      return;
-    }
-    if (editRoomId) editRoomId.value = room.id;
-    if (editRoomNumber) editRoomNumber.value = room.room_number || '';
-    if (editRoomType) editRoomType.value = room.type || '';
-    if (editRoomPrice) editRoomPrice.value = room.price_per_night || '';
-
-    const isOccupied = room.status === 'مشغولة';
-    if (editRoomStatus) {
-      editRoomStatus.value = room.status || 'متاحة';
-      editRoomStatus.disabled = isOccupied;
-      if (isOccupied) {
-        editRoomStatus.title = "الغرفة مشغولة بنزيل حالياً - مقفلة حتى تسجيل المغادرة (Check-out)";
-      } else {
-        editRoomStatus.title = "";
-      }
-    }
-
-    if (editRoomStatusLockedHint) {
-      editRoomStatusLockedHint.style.display = isOccupied ? 'block' : 'none';
-    }
-
-    if (btnDeleteRoom) {
-      if (isOccupied) {
-        btnDeleteRoom.disabled = true;
-        btnDeleteRoom.style.opacity = '0.5';
-        btnDeleteRoom.style.cursor = 'not-allowed';
-        btnDeleteRoom.title = "لا يمكن حذف الغرفة لأنها مشغولة بحجز نشط";
-      } else {
-        btnDeleteRoom.disabled = false;
-        btnDeleteRoom.style.opacity = '1';
-        btnDeleteRoom.style.cursor = 'pointer';
-        btnDeleteRoom.title = "";
-      }
-    }
-
-    if (editRoomModal) {
-      editRoomModal.style.display = 'flex';
-    }
-    if (editRoomNumber) {
-      editRoomNumber.focus();
-    }
-  }
-
-  function closeEditRoomModal() {
-    if (editRoomModal) {
-      editRoomModal.style.display = 'none';
-    }
-    if (editRoomStatus) {
-      editRoomStatus.disabled = false;
-      editRoomStatus.title = "";
-    }
-    if (editRoomStatusLockedHint) {
-      editRoomStatusLockedHint.style.display = 'none';
-    }
-    if (btnDeleteRoom) {
-      btnDeleteRoom.disabled = false;
-      btnDeleteRoom.style.opacity = '1';
-      btnDeleteRoom.style.cursor = 'pointer';
-      btnDeleteRoom.title = "";
-    }
-    if (editRoomForm) {
-      editRoomForm.reset();
-    }
-  }
+  const { openEditRoomModal, closeEditRoomModal } = createEditRoomModal({
+    getRooms: () => dashboardState.roomsCache,
+    modal: editRoomModal,
+    form: editRoomForm,
+    idInput: editRoomId,
+    numberInput: editRoomNumber,
+    typeInput: editRoomType,
+    priceInput: editRoomPrice,
+    statusInput: editRoomStatus,
+    statusLockedHint: editRoomStatusLockedHint,
+    deleteButton: btnDeleteRoom,
+    showToast
+  });
 
   if (btnCloseEditRoomModal) {
     btnCloseEditRoomModal.addEventListener('click', closeEditRoomModal);
