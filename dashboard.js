@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from './dashboard/constants.js';
 import { createNavigation } from './dashboard/navigation.js';
 import { createEditGuestModal } from './dashboard/guest-modal.js';
 import { createEditRoomModal } from './dashboard/room-modal.js';
+import { createFactoryResetModal } from './dashboard/factory-reset-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -4006,97 +4007,21 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   const factoryResetErrorMsg = document.getElementById('factory-reset-error-msg');
   const btnSubmitFactoryReset = document.getElementById('btn-submit-factory-reset');
 
-  function openFactoryResetModal() {
-    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
-    if (activeRole !== 'Admin') {
-      showToast('غير مصرح: تصفير بيانات التطبيق يتطلب صلاحيات مدير النظام (Admin).', 'error');
-      return;
-    }
-    if (factoryResetPasswordInput) factoryResetPasswordInput.value = '';
-    if (factoryResetErrorMsg) {
-      factoryResetErrorMsg.textContent = '';
-      factoryResetErrorMsg.style.display = 'none';
-    }
-    if (factoryResetModal) {
-      factoryResetModal.style.display = 'flex';
-      setTimeout(() => {
-        if (factoryResetPasswordInput) factoryResetPasswordInput.focus();
-      }, 100);
-    }
-  }
-
-  function closeFactoryResetModal() {
-    if (factoryResetModal) factoryResetModal.style.display = 'none';
-    if (factoryResetPasswordInput) factoryResetPasswordInput.value = '';
-    if (factoryResetErrorMsg) {
-      factoryResetErrorMsg.textContent = '';
-      factoryResetErrorMsg.style.display = 'none';
-    }
-  }
-
-  if (btnOpenFactoryReset) {
-    btnOpenFactoryReset.addEventListener('click', openFactoryResetModal);
-  }
-  if (btnCloseFactoryReset) {
-    btnCloseFactoryReset.addEventListener('click', closeFactoryResetModal);
-  }
-  if (btnCancelFactoryReset) {
-    btnCancelFactoryReset.addEventListener('click', closeFactoryResetModal);
-  }
-  if (factoryResetModal) {
-    factoryResetModal.addEventListener('click', (e) => {
-      if (e.target === factoryResetModal) closeFactoryResetModal();
-    });
-  }
-
-  if (factoryResetForm) {
-    factoryResetForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const pwd = factoryResetPasswordInput ? factoryResetPasswordInput.value : '';
-      if (!pwd) {
-        if (factoryResetErrorMsg) {
-          factoryResetErrorMsg.textContent = 'يرجى كتابة كلمة المرور لتأكيد تصفير البيانات.';
-          factoryResetErrorMsg.style.display = 'block';
-        }
-        return;
-      }
-
-      if (btnSubmitFactoryReset) {
-        btnSubmitFactoryReset.disabled = true;
-        btnSubmitFactoryReset.textContent = 'جاري تصفير البيانات...';
-      }
-
-      try {
-        const res = await api.factoryResetDatabase(pwd);
-        if (res && res.success) {
-          showToast(res.message || 'تم تصفير بيانات النظام بنجاح واستعادة تهيئة المصنع!', 'success');
-          closeFactoryResetModal();
-          setTimeout(() => {
-            window.location.reload();
-          }, 1200);
-        } else {
-          if (factoryResetErrorMsg) {
-            factoryResetErrorMsg.textContent = res?.error || 'فشلت عملية تصفير البيانات: تأكد من صحة كلمة المرور.';
-            factoryResetErrorMsg.style.display = 'block';
-          }
-          if (factoryResetPasswordInput) {
-            factoryResetPasswordInput.focus();
-            highlightField(factoryResetPasswordInput);
-          }
-        }
-      } catch (err) {
-        if (factoryResetErrorMsg) {
-          factoryResetErrorMsg.textContent = `خطأ: ${err.message}`;
-          factoryResetErrorMsg.style.display = 'block';
-        }
-      } finally {
-        if (btnSubmitFactoryReset) {
-          btnSubmitFactoryReset.disabled = false;
-          btnSubmitFactoryReset.textContent = 'تأكيد التصفير واستعادة المصنع ⚠️';
-        }
-      }
-    });
-  }
+  const { openFactoryResetModal, closeFactoryResetModal } = createFactoryResetModal({
+    openButton: btnOpenFactoryReset,
+    modal: factoryResetModal,
+    closeButton: btnCloseFactoryReset,
+    cancelButton: btnCancelFactoryReset,
+    form: factoryResetForm,
+    passwordInput: factoryResetPasswordInput,
+    errorMessage: factoryResetErrorMsg,
+    submitButton: btnSubmitFactoryReset,
+    getActiveRole: () => localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null),
+    api,
+    showToast,
+    highlightField,
+    reload: () => window.location.reload()
+  });
 
   // =========================================================================
   // OFFICIAL HOTEL TAX INVOICE & RECEIPT (FEATURE 1)
