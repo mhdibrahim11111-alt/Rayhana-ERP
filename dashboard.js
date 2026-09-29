@@ -3082,7 +3082,7 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     refreshReservations: loadReservationsData,
     refreshRooms: loadRoomsData,
     refreshTodayCheckouts: loadTodayCheckouts,
-    openInvoiceModal
+    openInvoiceModal: reservationId => openInvoiceModal(reservationId)
   });
   const { openContractSettleModal, closeContractSettleModal } = contractSettlement;
 
