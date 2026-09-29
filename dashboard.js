@@ -7,6 +7,7 @@ import { createEditRoomModal } from './dashboard/room-modal.js';
 import { createFactoryResetModal } from './dashboard/factory-reset-modal.js';
 import { createAddPaymentModal } from './dashboard/payment-modal.js';
 import { createContractSettlementModal } from './dashboard/contract-settlement-modal.js';
+import { createExtendStayModal } from './dashboard/extend-stay-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -3088,306 +3089,43 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   // =========================================================================
   // EXTEND STAY MODAL (تمديد فترة الإقامة)
   // =========================================================================
-  let currentExtendingReservation = null;
-  let currentCalcExtraNights = 0;
-  let currentCalcAdditionalCost = 0;
-  let currentCalcNewTotal = 0;
-
-  function updateExtendStayCalculations() {
-    if (!currentExtendingReservation || !extendNewCheckoutDate) return;
-
-    const oldDateStr = currentExtendingReservation.check_out_date;
-    const newDateStr = extendNewCheckoutDate.value;
-
-    let nightlyRate = parseFloat(extendNightlyRateInput ? extendNightlyRateInput.value : NaN);
-    if (isNaN(nightlyRate) || nightlyRate < 0) {
-      nightlyRate = (currentExtendingReservation.custom_nightly_price != null && !isNaN(Number(currentExtendingReservation.custom_nightly_price)))
-        ? parseFloat(currentExtendingReservation.custom_nightly_price)
-        : parseFloat(currentExtendingReservation.price_per_night || 0);
-    }
-
-    const discountAmount = Math.max(0, parseFloat(extendDiscountInput ? extendDiscountInput.value : 0) || 0);
-    const currentTotal = Math.round((parseFloat(currentExtendingReservation.total_price || 0) + Number.EPSILON) * 100) / 100;
-
-    if (!newDateStr || newDateStr <= oldDateStr) {
-      currentCalcExtraNights = 0;
-      currentCalcAdditionalCost = 0;
-      currentCalcNewTotal = currentTotal;
-
-      if (extendExtraNightsPreview) extendExtraNightsPreview.textContent = '0';
-      if (extendCalcRatePreview) extendCalcRatePreview.textContent = `${nightlyRate.toLocaleString()} ر.س`;
-      if (extendAdditionalCostPreview) extendAdditionalCostPreview.textContent = '0 ر.س';
-      if (extendDiscountBadge) extendDiscountBadge.style.display = 'none';
-      if (extendNewTotalPreview) extendNewTotalPreview.textContent = `${currentTotal.toLocaleString()} ر.س`;
-      if (extendSettleAmount && extendCollectNowToggle && extendCollectNowToggle.checked) {
-        extendSettleAmount.value = '0.00';
-      }
-      return;
-    }
-
-    const dOld = new Date(oldDateStr + 'T00:00:00');
-    const dNew = new Date(newDateStr + 'T00:00:00');
-    const diffTime = dNew.getTime() - dOld.getTime();
-    currentCalcExtraNights = Math.round(diffTime / (1000 * 60 * 60 * 24));
-    
-    const baseCost = Math.round((currentCalcExtraNights * nightlyRate + Number.EPSILON) * 100) / 100;
-    currentCalcAdditionalCost = Math.max(0, Math.round((baseCost - discountAmount + Number.EPSILON) * 100) / 100);
-    currentCalcNewTotal = Math.round((currentTotal + currentCalcAdditionalCost + Number.EPSILON) * 100) / 100;
-
-    const nightsLabel = currentCalcExtraNights === 1 ? 'ليلة واحدة' : (currentCalcExtraNights === 2 ? 'ليلتين' : `${currentCalcExtraNights} ليالٍ`);
-    if (extendExtraNightsPreview) extendExtraNightsPreview.textContent = nightsLabel;
-    if (extendCalcRatePreview) extendCalcRatePreview.textContent = `${nightlyRate.toLocaleString()} ر.س`;
-    if (extendAdditionalCostPreview) extendAdditionalCostPreview.textContent = `+${currentCalcAdditionalCost.toLocaleString()} ر.س`;
-    
-    if (extendDiscountBadge) {
-      if (discountAmount > 0) {
-        extendDiscountBadge.textContent = `(خصم: -${discountAmount.toLocaleString()} ر.س)`;
-        extendDiscountBadge.style.display = 'block';
-      } else {
-        extendDiscountBadge.style.display = 'none';
-      }
-    }
-
-    if (extendNewTotalPreview) extendNewTotalPreview.textContent = `${currentCalcNewTotal.toLocaleString()} ر.س`;
-
-    if (extendSettleAmount && extendCollectNowToggle && extendCollectNowToggle.checked) {
-      // Auto-fill settle amount with additional cost
-      extendSettleAmount.value = currentCalcAdditionalCost > 0 ? currentCalcAdditionalCost.toFixed(2) : '0.00';
-    }
-  }
-
-  window.openExtendStayModal = async function openExtendStayModal(reservationId) {
-    const modal = document.getElementById('extend-stay-modal');
-    if (!modal) {
-      console.error('Modal #extend-stay-modal not found in DOM');
-      return;
-    }
-
-    const targetId = parseInt(reservationId, 10);
-    if (!targetId || isNaN(targetId)) {
-      showToast('رقم الحجز غير صالح.', 'error');
-      return;
-    }
-
-    // Find reservation in cache or fetch
-    let res = (dashboardState.reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
-    if (!res) {
-      try {
-        const allRes = await api.getAllReservations();
-        if (allRes && allRes.success && allRes.data) {
-          dashboardState.reservationsCache = allRes.data;
-          res = dashboardState.reservationsCache.find(r => parseInt(r.id, 10) === targetId);
-        }
-      } catch (err) {
-        console.error('Error fetching reservation for extension:', err);
-      }
-    }
-
-    if (!res) {
-      showToast('تعذر العثور على بيانات الحجز المطلوب.', 'error');
-      return;
-    }
-
-    if (res.status !== 'مؤكد') {
-      showToast('لا يمكن تمديد هذا الحجز، متاح فقط للحجوزات المؤكدة والنشطة حالياً.', 'warning');
-      return;
-    }
-
-    if (res.check_out_date === 'مفتوح' || !res.check_out_date) {
-      showToast('حجوزات العقود المفتوحة ليس لها تاريخ مغادرة محدد ليتم تمديدها.', 'warning');
-      return;
-    }
-
-    currentExtendingReservation = res;
-
-    // Populate Info Previews
-    if (extendResId) extendResId.value = res.id;
-    if (extendGuestNamePreview) extendGuestNamePreview.textContent = res.guest_name || 'نزيل';
-    if (extendRoomPreview) extendRoomPreview.textContent = `غرفة ${res.room_number || '-'} (${res.room_type || ''})`;
-    if (extendCurrentCheckoutPreview) extendCurrentCheckoutPreview.textContent = res.check_out_date;
-
-    const effectiveNightlyRate = (res.custom_nightly_price != null && !isNaN(Number(res.custom_nightly_price)))
-      ? parseFloat(res.custom_nightly_price)
-      : parseFloat(res.price_per_night || 0);
-
-    if (extendNightlyRatePreview) {
-      const customBadge = (res.custom_nightly_price != null && !isNaN(Number(res.custom_nightly_price))) ? ' (سعر خاص)' : '';
-      extendNightlyRatePreview.textContent = `${effectiveNightlyRate.toLocaleString()} ريال / ليلة${customBadge}`;
-    }
-
-    if (extendNightlyRateInput) {
-      extendNightlyRateInput.value = effectiveNightlyRate > 0 ? effectiveNightlyRate.toFixed(2) : '0.00';
-    }
-    if (extendDiscountInput) {
-      extendDiscountInput.value = '0.00';
-    }
-
-    // Set min checkout date = current checkout + 1 day
-    const oldDate = new Date(res.check_out_date + 'T00:00:00');
-    const minDate = new Date(oldDate);
-    minDate.setDate(minDate.getDate() + 1);
-    const minDateStr = (typeof getLocalDateString === 'function') ? getLocalDateString(minDate) : minDate.toISOString().split('T')[0];
-
-    if (extendNewCheckoutDate) {
-      extendNewCheckoutDate.min = minDateStr;
-      extendNewCheckoutDate.value = minDateStr; // Default to +1 night
-    }
-
-    // Reset toggle & payment fields
-    if (extendCollectNowToggle) {
-      extendCollectNowToggle.checked = true;
-    }
-    if (extendPaymentFields) {
-      extendPaymentFields.style.display = 'grid';
-    }
-    if (extendPaymentMethod) {
-      extendPaymentMethod.value = 'نقداً';
-    }
-
-    updateExtendStayCalculations();
-
-    modal.style.display = 'flex';
-  };
-
-  function closeExtendStayModal() {
-    if (extendStayModal) {
-      extendStayModal.style.display = 'none';
-    }
-    if (extendStayForm) {
-      extendStayForm.reset();
-    }
-    currentExtendingReservation = null;
-    currentCalcExtraNights = 0;
-    currentCalcAdditionalCost = 0;
-    currentCalcNewTotal = 0;
-  }
-
-  if (btnCloseExtendStay) btnCloseExtendStay.addEventListener('click', closeExtendStayModal);
-  if (btnCancelExtendStay) btnCancelExtendStay.addEventListener('click', closeExtendStayModal);
-  if (extendStayModal) {
-    extendStayModal.addEventListener('click', (e) => {
-      if (e.target === extendStayModal) closeExtendStayModal();
-    });
-  }
-
-  // Quick Extend Buttons (+1, +2, +3, +7, +30 / شهر)
-  const quickExtendButtons = document.querySelectorAll('.btn-quick-extend');
-  quickExtendButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!currentExtendingReservation || !currentExtendingReservation.check_out_date) return;
-      const days = parseInt(btn.dataset.days, 10);
-      if (!days || isNaN(days)) return;
-
-      const d = new Date(currentExtendingReservation.check_out_date + 'T00:00:00');
-      d.setDate(d.getDate() + days);
-      const newDateStr = (typeof getLocalDateString === 'function') ? getLocalDateString(d) : d.toISOString().split('T')[0];
-
-      if (extendNewCheckoutDate) {
-        extendNewCheckoutDate.value = newDateStr;
-        updateExtendStayCalculations();
-      }
-    });
+  const extendStay = createExtendStayModal({
+    elements: {
+      modal: extendStayModal,
+      closeButton: btnCloseExtendStay,
+      cancelButton: btnCancelExtendStay,
+      form: extendStayForm,
+      reservationId: extendResId,
+      guestNamePreview: extendGuestNamePreview,
+      roomPreview: extendRoomPreview,
+      currentCheckoutPreview: extendCurrentCheckoutPreview,
+      nightlyRatePreview: extendNightlyRatePreview,
+      newCheckoutDate: extendNewCheckoutDate,
+      extraNightsPreview: extendExtraNightsPreview,
+      additionalCostPreview: extendAdditionalCostPreview,
+      newTotalPreview: extendNewTotalPreview,
+      collectNowToggle: extendCollectNowToggle,
+      paymentFields: extendPaymentFields,
+      settleAmount: extendSettleAmount,
+      paymentMethod: extendPaymentMethod,
+      confirmButton: btnConfirmExtendStay,
+      nightlyRateInput: extendNightlyRateInput,
+      discountInput: extendDiscountInput,
+      calculatedRatePreview: extendCalcRatePreview,
+      discountBadge: extendDiscountBadge
+    },
+    quickExtendButtons: document.querySelectorAll('.btn-quick-extend'),
+    api,
+    getReservations: () => dashboardState.reservationsCache,
+    setReservations: reservations => { dashboardState.reservationsCache = reservations; },
+    getActiveUserId: () => localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null),
+    showToast,
+    refreshReservations: loadReservationsData,
+    refreshRooms: loadRoomsData,
+    refreshOverview: loadOverviewData,
+    refreshTodayCheckouts: loadTodayCheckouts
   });
-
-  if (extendNewCheckoutDate) {
-    extendNewCheckoutDate.addEventListener('input', updateExtendStayCalculations);
-    extendNewCheckoutDate.addEventListener('change', updateExtendStayCalculations);
-  }
-
-  if (extendNightlyRateInput) {
-    extendNightlyRateInput.addEventListener('input', updateExtendStayCalculations);
-    extendNightlyRateInput.addEventListener('change', updateExtendStayCalculations);
-  }
-
-  if (extendDiscountInput) {
-    extendDiscountInput.addEventListener('input', updateExtendStayCalculations);
-    extendDiscountInput.addEventListener('change', updateExtendStayCalculations);
-  }
-
-  if (extendCollectNowToggle) {
-    extendCollectNowToggle.addEventListener('change', () => {
-      if (extendPaymentFields) {
-        extendPaymentFields.style.display = extendCollectNowToggle.checked ? 'grid' : 'none';
-      }
-      if (!extendCollectNowToggle.checked) {
-        if (extendSettleAmount) extendSettleAmount.value = '0.00';
-      } else {
-        if (extendSettleAmount) extendSettleAmount.value = currentCalcAdditionalCost > 0 ? currentCalcAdditionalCost.toFixed(2) : '0.00';
-      }
-    });
-  }
-
-  if (extendStayForm) {
-    extendStayForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!currentExtendingReservation) return;
-
-      const newDate = extendNewCheckoutDate ? extendNewCheckoutDate.value.trim() : '';
-      if (!newDate) {
-        showToast('يرجى تحديد تاريخ المغادرة الجديد.', 'error');
-        return;
-      }
-      if (newDate <= currentExtendingReservation.check_out_date) {
-        showToast(`تاريخ المغادرة الجديد (${newDate}) يجب أن يكون بعد تاريخ المغادرة الحالي (${currentExtendingReservation.check_out_date}).`, 'error');
-        return;
-      }
-
-      const settle = (extendCollectNowToggle && extendCollectNowToggle.checked)
-        ? Math.max(0, parseFloat(extendSettleAmount ? extendSettleAmount.value : 0) || 0)
-        : 0;
-
-      const payMethod = extendPaymentMethod ? extendPaymentMethod.value : 'نقداً';
-
-      const btnSubmit = document.getElementById('btn-confirm-extend-stay');
-      if (btnSubmit) {
-        btnSubmit.disabled = true;
-        btnSubmit.textContent = 'جاري تمديد الإقامة...';
-      }
-
-      try {
-        const activeUserId = localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null);
-        const nightlyRate = parseFloat(extendNightlyRateInput ? extendNightlyRateInput.value : NaN);
-        const discount = Math.max(0, parseFloat(extendDiscountInput ? extendDiscountInput.value : 0) || 0);
-
-        const res = await api.extendReservation({
-          reservationId: currentExtendingReservation.id,
-          newCheckOutDate: newDate,
-          customNightlyPrice: !isNaN(nightlyRate) && nightlyRate >= 0 ? nightlyRate : undefined,
-          discountAmount: discount,
-          additionalCost: currentCalcAdditionalCost,
-          settleAmount: settle,
-          paymentMethod: payMethod,
-          userId: activeUserId ? parseInt(activeUserId, 10) : null,
-          notes: `تمديد فترة الإقامة (${currentCalcExtraNights} ليالٍ إضافية حتى ${newDate})${discount > 0 ? ` [خصم تمديد: ${discount} ر.س]` : ''}`
-        });
-
-        if (res && res.success) {
-          const receiptInfo = res.receiptNumber ? ` (سند قبض رقم: ${res.receiptNumber})` : '';
-          const settleInfo = settle > 0 ? ` وتم تحصيل ${settle.toLocaleString()} ريال` : ' (مسجلة ذمة مستحقة)';
-          const discountInfo = discount > 0 ? ` [خصم: ${discount.toLocaleString()} ريال]` : '';
-          showToast(`تم تمديد إقامة النزيل (${res.reservation?.guest_name || currentExtendingReservation.guest_name}) بنجاح حتى ${newDate}${discountInfo}${settleInfo}${receiptInfo} ✓`, 'success');
-          closeExtendStayModal();
-
-          await Promise.all([
-            loadReservationsData(),
-            loadRoomsData(),
-            loadOverviewData(),
-            typeof loadTodayCheckouts === 'function' ? loadTodayCheckouts() : Promise.resolve()
-          ]);
-        } else {
-          showToast(res?.error || 'فشل تمديد الحجز.', 'error');
-        }
-      } catch (err) {
-        console.error('Extend stay submit error:', err);
-        showToast(`خطأ: ${err.message}`, 'error');
-      } finally {
-        if (btnSubmit) {
-          btnSubmit.disabled = false;
-          btnSubmit.textContent = 'تأكيد تمديد الحجز ✓';
-        }
-      }
-    });
-  }
+  window.openExtendStayModal = extendStay.openExtendStayModal;
 
   // Toggle & Submit Add Customer Form (Available to both Admin and User roles)
   if (btnToggleAddCustomer && addCustomerPanel) {
