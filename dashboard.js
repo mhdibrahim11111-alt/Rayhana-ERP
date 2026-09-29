@@ -3349,9 +3349,33 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   const { openInvoiceModal } = createInvoiceModal({
     api,
     state: dashboardState,
-    modal: invoiceModal,
-    printableArea: invoicePrintableArea,
-    showToast
+    elements: {
+      modal: invoiceModal,
+      printableArea: invoicePrintableArea,
+      closeButton: btnCloseInvoiceModal,
+      printButton: btnTriggerPrintInvoice,
+      exportButton: btnExportPdfInvoice,
+      previewButton: btnPreviewWindowInvoice,
+      editButton: btnEditInvoice,
+      editModal: editInvoiceModal,
+      closeEditButton: btnCloseEditInvoice,
+      cancelEditButton: btnCancelEditInv,
+      editForm: editInvoiceForm,
+      editReservationId: editInvResId,
+      editGuestName: editInvGuestName,
+      editGuestPhone: editInvGuestPhone,
+      editGuestId: editInvGuestId,
+      editTotalPrice: editInvTotalPrice,
+      editPaidAmount: editInvPaidAmount,
+      editDepositAmount: editInvDepositAmount,
+      editPaymentMethod: editInvPaymentMethod,
+      editRemainingPreview: editInvRemainingPreview
+    },
+    showToast,
+    printIsolatedElement,
+    refreshOverview: loadOverviewData,
+    refreshRooms: loadRoomsData,
+    refreshReservations: loadReservationsData
   });
 
   // =========================================================================
@@ -3833,22 +3857,6 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     }, 300);
   }
 
-  // Close & Print Handlers for Invoice Modal
-  if (btnCloseInvoiceModal) {
-    btnCloseInvoiceModal.addEventListener('click', () => {
-      if (invoiceModal) invoiceModal.style.display = 'none';
-      document.body.classList.remove('printing-invoice', 'printing-shift-audit');
-    });
-  }
-  if (invoiceModal) {
-    invoiceModal.addEventListener('click', (e) => {
-      if (e.target === invoiceModal) {
-        invoiceModal.style.display = 'none';
-        document.body.classList.remove('printing-invoice', 'printing-shift-audit');
-      }
-    });
-  }
-
   // Close Handlers for Room Revenue Modal
   if (btnCloseRoomRevenueModal) {
     btnCloseRoomRevenueModal.addEventListener('click', () => {
@@ -3862,179 +3870,6 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
       }
     });
   }
-  if (btnTriggerPrintInvoice) {
-    btnTriggerPrintInvoice.addEventListener('click', () => {
-      printIsolatedElement(invoicePrintableArea ? invoicePrintableArea.innerHTML : '', 'سند استلام', true);
-    });
-  }
-  if (btnExportPdfInvoice) {
-    btnExportPdfInvoice.addEventListener('click', async () => {
-      try {
-        if (!invoicePrintableArea || !invoicePrintableArea.innerHTML.trim()) {
-          showToast('لا توجد بيانات سند لتصديره.', 'error');
-          return;
-        }
-        showToast('جاري إنشاء وحفظ ملف السند بصيغة PDF...', 'info');
-        const res = await api.printToPdf({
-          html: invoicePrintableArea.innerHTML,
-          title: 'سند استلام',
-          defaultFilename: `receipt_${dashboardState.currentInvoiceReservationId || 'reservation'}.pdf`
-        });
-        if (res && res.canceled) return;
-        if (res && res.success) {
-          showToast(`تم تصدير وحفظ السند بنجاح في: ${res.filePath}`, 'success');
-        } else {
-          showToast(res?.error || 'فشل تصدير ملف PDF.', 'error');
-        }
-      } catch (err) {
-        showToast(`خطأ أثناء تصدير PDF: ${err.message}`, 'error');
-      }
-    });
-  }
-  if (btnPreviewWindowInvoice) {
-    btnPreviewWindowInvoice.addEventListener('click', async () => {
-      try {
-        if (!invoicePrintableArea || !invoicePrintableArea.innerHTML.trim()) {
-          showToast('لا توجد بيانات سند للمعاينة.', 'error');
-          return;
-        }
-        await api.openPrintPreviewWindow({
-          html: invoicePrintableArea.innerHTML,
-          title: 'معاينة سند الاستلام'
-        });
-      } catch (err) {
-        showToast(`تعذر فتح نافذة المعاينة: ${err.message}`, 'error');
-      }
-    });
-  }
-
-  // Edit Receipt / Invoice Handlers
-  function updateEditInvoiceRemaining() {
-    const total = parseFloat(editInvTotalPrice ? editInvTotalPrice.value : 0) || 0;
-    const paid = parseFloat(editInvPaidAmount ? editInvPaidAmount.value : 0) || 0;
-    const isOpenContract = dashboardState.currentInvoiceData && dashboardState.currentInvoiceData.booking_type === 'عقد مفتوح';
-    const remaining = total - paid;
-    if (editInvRemainingPreview) {
-      if (isOpenContract && remaining < -0.005) {
-        editInvRemainingPreview.textContent = `رصيد دائن: ${Math.abs(remaining).toFixed(2)} ريال`;
-        editInvRemainingPreview.style.color = '#2563eb';
-      } else {
-        const displayRemaining = Math.max(0, remaining);
-        editInvRemainingPreview.textContent = `${displayRemaining.toFixed(2)} ريال`;
-        editInvRemainingPreview.style.color = displayRemaining > 0 ? '#dc2626' : '#059669';
-      }
-    }
-  }
-
-  if (editInvTotalPrice) editInvTotalPrice.addEventListener('input', updateEditInvoiceRemaining);
-  if (editInvPaidAmount) editInvPaidAmount.addEventListener('input', updateEditInvoiceRemaining);
-
-  if (btnEditInvoice) {
-    btnEditInvoice.addEventListener('click', () => {
-      if (!dashboardState.currentInvoiceData) {
-        showToast('يرجى فتح سند أولاً لتعديله.', 'error');
-        return;
-      }
-      if (editInvResId) editInvResId.value = dashboardState.currentInvoiceData.id;
-      if (editInvGuestName) editInvGuestName.value = dashboardState.currentInvoiceData.guest_name || '';
-      if (editInvGuestPhone) editInvGuestPhone.value = dashboardState.currentInvoiceData.guest_phone || '';
-      if (editInvGuestId) editInvGuestId.value = dashboardState.currentInvoiceData.guest_id_number || '';
-      if (editInvTotalPrice) editInvTotalPrice.value = dashboardState.currentInvoiceData.total_price || 0;
-      if (editInvPaidAmount) editInvPaidAmount.value = dashboardState.currentInvoiceData.paid_amount || 0;
-      if (editInvDepositAmount) editInvDepositAmount.value = dashboardState.currentInvoiceData.deposit_amount || 0;
-      if (editInvPaymentMethod) editInvPaymentMethod.value = dashboardState.currentInvoiceData.payment_method || 'نقداً';
-
-      updateEditInvoiceRemaining();
-      if (editInvoiceModal) editInvoiceModal.style.display = 'flex';
-    });
-  }
-
-  function closeEditInvoiceModal() {
-    if (editInvoiceModal) editInvoiceModal.style.display = 'none';
-  }
-
-  if (btnCloseEditInvoice) btnCloseEditInvoice.addEventListener('click', closeEditInvoiceModal);
-  if (btnCancelEditInv) btnCancelEditInv.addEventListener('click', closeEditInvoiceModal);
-  if (editInvoiceModal) {
-    editInvoiceModal.addEventListener('click', (e) => {
-      if (e.target === editInvoiceModal) closeEditInvoiceModal();
-    });
-  }
-
-  if (editInvoiceForm) {
-    editInvoiceForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const resId = parseInt(editInvResId.value, 10);
-      const guestName = editInvGuestName.value.trim();
-      const guestPhone = editInvGuestPhone.value.trim();
-      const guestIdNumber = editInvGuestId.value.trim();
-      const totalPrice = parseFloat(editInvTotalPrice.value) || 0;
-      const paidAmount = parseFloat(editInvPaidAmount.value) || 0;
-      const depositAmount = parseFloat(editInvDepositAmount ? editInvDepositAmount.value : 0) || 0;
-      const paymentMethod = editInvPaymentMethod.value;
-      const isOpenContract = dashboardState.currentInvoiceData && dashboardState.currentInvoiceData.booking_type === 'عقد مفتوح';
-
-      if (!guestName) {
-        showToast('يرجى إدخال اسم النزيل.', 'error');
-        return;
-      }
-      if (guestPhone && !/^05\d{8}$/.test(guestPhone)) {
-        showToast('رقم الجوال غير صحيح: يجب أن يبدأ بـ 05 ويتكون من 10 أرقام (مثال: 0501234567).', 'error');
-        return;
-      }
-      if (guestIdNumber && !/^(?:\d{10}|[a-zA-Z0-9]{6,9})$/i.test(guestIdNumber)) {
-        showToast('رقم الهوية الوطنية أو الإقامة (10 أرقام) أو جواز السفر (6 إلى 9 خانات) غير صحيح.', 'error');
-        return;
-      }
-      if (!isOpenContract && totalPrice <= 0) {
-        showToast('السعر الإجمالي يجب أن يكون أكبر من الصفر.', 'error');
-        return;
-      }
-      if (isOpenContract && totalPrice < 0) {
-        showToast('السعر الإجمالي لا يمكن أن يكون سالباً.', 'error');
-        return;
-      }
-      if (paidAmount < 0) {
-        showToast('المبلغ المدفوع لا يمكن أن يكون سالباً.', 'error');
-        return;
-      }
-      if (!isOpenContract && paidAmount - totalPrice > 0.005) {
-        showToast(`المبلغ المدفوع (${paidAmount} ريال) لا يمكن أن يتجاوز السعر الإجمالي (${totalPrice} ريال).`, 'error');
-        return;
-      }
-
-      try {
-        const res = await api.updateReservationReceipt({
-          reservationId: resId,
-          guestName,
-          guestPhone,
-          guestIdNumber,
-          totalPrice,
-          paidAmount,
-          depositAmount,
-          paymentMethod
-        });
-
-        if (res && res.success) {
-          showToast('تم حفظ وتحديث بيانات السند بنجاح!', 'success');
-          closeEditInvoiceModal();
-          // Reload updated invoice preview
-          await openInvoiceModal(resId);
-          // Sync all views
-          await Promise.all([
-            loadOverviewData(),
-            loadRoomsData(),
-            loadReservationsData()
-          ]);
-        } else {
-          showToast(res?.error || 'فشل تحديث بيانات السند.', 'error');
-        }
-      } catch (err) {
-        showToast(`خطأ أثناء الحفظ: ${err.message}`, 'error');
-      }
-    });
-  }
-
   // Shift Audit Handlers
   if (btnOpenShiftAudit) {
     btnOpenShiftAudit.addEventListener('click', () => openShiftAuditModal());
