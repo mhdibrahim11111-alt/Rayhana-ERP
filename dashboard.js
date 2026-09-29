@@ -1,3 +1,10 @@
+import { api } from './dashboard/api.js';
+import { getBookingTypeBadge, getPaymentStatusBadge, getReservationStatusBadge, getRoomStatusBadge } from './dashboard/badges.js';
+import { STORAGE_KEYS } from './dashboard/constants.js';
+import { dashboardState } from './dashboard/state.js';
+import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
+import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
+
 /**
  * نظام أحمد لإدارة الفنادق (Ahmed Hotel ERP)
  * Complete Interactive Multi-View Dashboard Script (dashboard.js)
@@ -6,22 +13,6 @@
 
 (function () {
   'use strict';
-
-  // State Caches
-  let currentUser = null;
-  let reservationsCache = [];
-  let roomsCache = [];
-  let guestsCache = [];
-  let usersCache = [];
-  let logsCache = [];
-  let currentReservationFilter = 'all';
-  let currentRoomFilter = 'all';
-  let currentRoomSearch = '';
-  let currentRoomBookingType = 'all';
-
-  // Chart Instances
-  let monthlyRevenueChart = null;
-  let roomStatusChart = null;
 
   // Navigation Links & Views
   const navLinks = document.querySelectorAll('.sidebar-nav .nav-link');
@@ -268,192 +259,11 @@
   const logsCountBadge = document.getElementById('logs-count-badge');
   const btnRefreshLogs = document.getElementById('btn-refresh-logs');
 
-  /**
-   * Format local date as YYYY-MM-DD (immune to UTC timezone offsets)
-   */
-  function getLocalDateString(d = new Date()) {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
   // Set default dates
   const today = new Date();
   const tomorrow = new Date(Date.now() + 86400000);
   checkInInput.value = getLocalDateString(today);
   checkOutInput.value = getLocalDateString(tomorrow);
-
-  // --- TOAST NOTIFICATIONS ---
-  function showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-
-    const iconMap = {
-      success: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
-      error: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
-      info: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`
-    };
-
-    toast.innerHTML = `
-      ${iconMap[type] || iconMap.info}
-      <span style="flex: 1;">${escapeHtml(message)}</span>
-    `;
-
-    container.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 0.3s ease';
-      setTimeout(() => toast.remove(), 300);
-    }, 3500);
-  }
-
-  // --- UNIVERSAL IN-APP CONFIRMATION MODAL (Zero Native Freeze) ---
-  function showConfirmDialog({
-    title = 'تأكيد الإجراء',
-    message = 'هل أنت متأكد من رغبتك في المتابعة؟',
-    confirmText = 'نعم، تأكيد',
-    cancelText = 'إلغاء',
-    isDanger = true
-  } = {}) {
-    return new Promise((resolve) => {
-      const modal = document.getElementById('app-confirm-modal');
-      const titleEl = document.getElementById('confirm-modal-title');
-      const msgEl = document.getElementById('confirm-modal-message');
-      const btnConfirm = document.getElementById('btn-modal-confirm');
-      const btnCancel = document.getElementById('btn-modal-cancel');
-      const iconContainer = document.getElementById('confirm-modal-icon-container');
-
-      if (!modal || !btnConfirm || !btnCancel) {
-        resolve(window.confirm ? window.confirm(message) : true);
-        return;
-      }
-
-      if (titleEl) titleEl.textContent = title;
-      if (msgEl) msgEl.textContent = message;
-      if (btnCancel) btnCancel.textContent = cancelText;
-
-      if (btnConfirm) {
-        btnConfirm.textContent = confirmText;
-        if (isDanger) {
-          btnConfirm.className = 'btn btn-danger';
-          btnConfirm.style.background = '#dc2626';
-          btnConfirm.style.color = '#ffffff';
-          btnConfirm.style.border = 'none';
-          if (iconContainer) {
-            iconContainer.style.background = 'rgba(239, 68, 68, 0.12)';
-            iconContainer.style.color = '#dc2626';
-            iconContainer.style.borderColor = 'rgba(239, 68, 68, 0.25)';
-          }
-        } else {
-          btnConfirm.className = 'btn btn-primary';
-          btnConfirm.style.background = 'var(--primary-accent, #1a4332)';
-          btnConfirm.style.color = '#ffffff';
-          btnConfirm.style.border = 'none';
-          if (iconContainer) {
-            iconContainer.style.background = 'rgba(26, 67, 50, 0.12)';
-            iconContainer.style.color = 'var(--primary-accent, #1a4332)';
-            iconContainer.style.borderColor = 'rgba(26, 67, 50, 0.25)';
-          }
-        }
-      }
-
-      const cleanup = (result) => {
-        modal.style.display = 'none';
-        btnConfirm.removeEventListener('click', onConfirm);
-        btnCancel.removeEventListener('click', onCancel);
-        modal.removeEventListener('click', onBackdrop);
-        document.removeEventListener('keydown', onKeyDown);
-        // Force window to restore active focus state
-        window.focus();
-        resolve(result);
-      };
-
-      const onConfirm = () => cleanup(true);
-      const onCancel = () => cleanup(false);
-      const onBackdrop = (e) => {
-        if (e.target === modal) cleanup(false);
-      };
-      const onKeyDown = (e) => {
-        if (e.key === 'Escape') cleanup(false);
-      };
-
-      btnConfirm.addEventListener('click', onConfirm);
-      btnCancel.addEventListener('click', onCancel);
-      modal.addEventListener('click', onBackdrop);
-      document.addEventListener('keydown', onKeyDown);
-
-      modal.style.display = 'flex';
-      setTimeout(() => {
-        btnConfirm.focus();
-      }, 50);
-    });
-  }
-
-  // --- UNIVERSAL IN-APP PROMPT MODAL (Zero Native Freeze) ---
-  function showPromptDialog({
-    title = 'إدخال بيانات',
-    message = 'يرجى إدخال القيمة المطلوبة:',
-    defaultValue = '',
-    placeholder = '',
-    confirmText = 'تأكيد',
-    cancelText = 'إلغاء'
-  } = {}) {
-    return new Promise((resolve) => {
-      const modal = document.getElementById('app-prompt-modal');
-      const titleEl = document.getElementById('prompt-modal-title');
-      const msgEl = document.getElementById('prompt-modal-message');
-      const inputEl = document.getElementById('prompt-modal-input');
-      const btnConfirm = document.getElementById('btn-prompt-confirm');
-      const btnCancel = document.getElementById('btn-prompt-cancel');
-
-      if (!modal || !btnConfirm || !btnCancel || !inputEl) {
-        const val = window.prompt ? window.prompt(message, defaultValue) : defaultValue;
-        resolve(val !== null ? val.trim() : null);
-        return;
-      }
-
-      if (titleEl) titleEl.textContent = title;
-      if (msgEl) msgEl.textContent = message;
-      if (btnConfirm) btnConfirm.textContent = confirmText;
-      if (btnCancel) btnCancel.textContent = cancelText;
-      inputEl.value = defaultValue;
-      if (placeholder) inputEl.placeholder = placeholder;
-
-      const cleanup = (result) => {
-        modal.style.display = 'none';
-        btnConfirm.removeEventListener('click', onConfirm);
-        btnCancel.removeEventListener('click', onCancel);
-        modal.removeEventListener('click', onBackdrop);
-        document.removeEventListener('keydown', onKeyDown);
-        window.focus();
-        resolve(result);
-      };
-
-      const onConfirm = () => cleanup(inputEl.value.trim());
-      const onCancel = () => cleanup(null);
-      const onBackdrop = (e) => {
-        if (e.target === modal) cleanup(null);
-      };
-      const onKeyDown = (e) => {
-        if (e.key === 'Escape') cleanup(null);
-        if (e.key === 'Enter') cleanup(inputEl.value.trim());
-      };
-
-      btnConfirm.addEventListener('click', onConfirm);
-      btnCancel.addEventListener('click', onCancel);
-      modal.addEventListener('click', onBackdrop);
-      document.addEventListener('keydown', onKeyDown);
-
-      modal.style.display = 'flex';
-      setTimeout(() => {
-        inputEl.focus();
-        inputEl.select();
-      }, 50);
-    });
-  }
 
   // --- MID-STAY PRO-RATED CANCELLATION MODAL WITH DEPARTURE DATE & ADMIN OVERRIDE ---
   function showMidStayCancelModal(targetRes) {
@@ -468,14 +278,14 @@
       }
 
       let nightlyRate = Number(targetRes.price_per_night || 0);
-      if (!nightlyRate && roomsCache && roomsCache.length > 0) {
-        const rm = roomsCache.find(r => r.id === targetRes.room_id || r.room_number === targetRes.room_number);
+      if (!nightlyRate && dashboardState.roomsCache && dashboardState.roomsCache.length > 0) {
+        const rm = dashboardState.roomsCache.find(r => r.id === targetRes.room_id || r.room_number === targetRes.room_number);
         if (rm && rm.price_per_night) nightlyRate = Number(rm.price_per_night);
       }
 
       const todayStr = getLocalDateString();
       const checkInDate = targetRes.check_in_date || todayStr;
-      const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+      const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
       const isAdmin = activeRole === 'Admin';
 
       modal.innerHTML = `
@@ -677,7 +487,7 @@
   // Heavy data-loading calls are then deferred via requestAnimationFrame so the
   // browser paints the new empty view first, then fills it — zero navigation freeze.
   window.switchView = function (targetView) {
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
     // RBAC Security Guard: Protect admin and logs views
     if ((targetView === 'admin' || targetView === 'logs') && activeRole !== 'Admin') {
       showToast('Access Denied: Admin privileges required. (عذراً: هذا القسم مخصص لمدير النظام فقط)', 'error');
@@ -991,55 +801,6 @@
     });
   }
 
-  // --- STATUS BADGES ---
-  function getReservationStatusBadge(status) {
-    if (status === 'مؤكد') {
-      return `<span class="badge badge-confirmed">حجز مؤكد</span>`;
-    } else if (status === 'مكتمل') {
-      return `<span class="badge badge-completed">تم تسجيل الخروج</span>`;
-    } else if (status === 'ملغي') {
-      return `<span class="badge badge-cancelled">ملغي</span>`;
-    } else if (status === 'ملغي جزئي') {
-      return `<span class="badge" style="background: rgba(234, 88, 12, 0.12); color: #ea580c; border: 1px solid rgba(234, 88, 12, 0.3); font-weight: 700;">ملغي جزئياً</span>`;
-    }
-    return `<span class="badge">${escapeHtml(status)}</span>`;
-  }
-
-  function getPaymentStatusBadge(status) {
-    // PERF: Using CSS classes (not inline styles) — browser caches style rules once.
-    if (status === 'مدفوع بالكامل' || status === 'مكتمل') {
-      return `<span class="badge badge-paid-full">مدفوع بالكامل ✓</span>`;
-    } else if (status === 'رصيد دائن') {
-      return `<span class="badge" style="background: rgba(37, 99, 235, 0.12); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.3); font-weight: 800;">رصيد دائن 💳</span>`;
-    } else if (status === 'مدفوع جزئياً') {
-      return `<span class="badge badge-paid-partial">مدفوع جزئياً</span>`;
-    } else {
-      return `<span class="badge badge-unpaid">غير مدفوع</span>`;
-    }
-  }
-
-  function getBookingTypeBadge(type) {
-    if (type === 'عقد مفتوح') {
-      return `<span class="badge" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.3); font-size: 0.72rem; font-weight: 800; padding: 2px 7px;">عقد مفتوح 📋</span>`;
-    } else if (type === 'حجز شهري') {
-      return `<span class="badge" style="background: rgba(168, 85, 247, 0.12); color: #9333ea; border: 1px solid rgba(168, 85, 247, 0.3); font-size: 0.72rem; font-weight: 800; padding: 2px 7px;">حجز شهري 📅</span>`;
-    }
-    return '';
-  }
-
-  function getRoomStatusBadge(status) {
-    if (status === 'متاحة') {
-      return `<span class="badge badge-available">متاحة (جاهزة)</span>`;
-    } else if (status === 'مشغولة') {
-      return `<span class="badge badge-occupied">مشغولة</span>`;
-    } else if (status === 'تنظيف') {
-      return `<span class="badge badge-cleaning">قيد التنظيف</span>`;
-    } else if (status === 'محجوزة') {
-      return `<span class="badge badge-reserved">محجوزة (قادمة)</span>`;
-    }
-    return `<span class="badge">${escapeHtml(status)}</span>`;
-  }
-
   // =========================================================================
   // ANALYTICS & CHART.JS VISUALIZATION (Light White Glass with Forest Green)
   // =========================================================================
@@ -1069,11 +830,11 @@
         collectedValues = [0];
       }
 
-      if (monthlyRevenueChart) {
-        monthlyRevenueChart.destroy();
+      if (dashboardState.monthlyRevenueChart) {
+        dashboardState.monthlyRevenueChart.destroy();
       }
 
-      monthlyRevenueChart = new Chart(revenueCtx, {
+      dashboardState.monthlyRevenueChart = new Chart(revenueCtx, {
         type: 'bar',
         data: {
           labels: labels,
@@ -1158,11 +919,11 @@
       const occ = stats ? stats.occupiedRooms : 0;
       const clean = stats ? stats.cleaningRooms : 0;
 
-      if (roomStatusChart) {
-        roomStatusChart.destroy();
+      if (dashboardState.roomStatusChart) {
+        dashboardState.roomStatusChart.destroy();
       }
 
-      roomStatusChart = new Chart(roomCtx, {
+      dashboardState.roomStatusChart = new Chart(roomCtx, {
         type: 'doughnut',
         data: {
           labels: ['متاحة (Available)', 'مشغولة (Occupied)', 'تنظيف (Cleaning)'],
@@ -1200,7 +961,7 @@
     try {
       // 1. Load Stats
       let stats = null;
-      const statsRes = await window.api.getDashboardStats();
+      const statsRes = await api.getDashboardStats();
       if (statsRes.success && statsRes.data) {
         stats = statsRes.data;
         statAvailableRooms.textContent = stats.availableRooms.toLocaleString();
@@ -1211,7 +972,7 @@
 
       // 2. Load Monthly Revenue for Analytics
       let monthlyData = [];
-      const analyticsRes = await window.api.getMonthlyRevenue();
+      const analyticsRes = await api.getMonthlyRevenue();
       if (analyticsRes.success) {
         monthlyData = analyticsRes.data || [];
       }
@@ -1221,7 +982,7 @@
 
       // 3. Load Available & Future Reserved Rooms into Booking Dropdown
       const currentSelectedVal = roomSelect ? roomSelect.value : '';
-      const roomsRes = await window.api.getAvailableRooms();
+      const roomsRes = await api.getAvailableRooms();
       if (roomsRes.success) {
         let optionsHtml = `<option value="">-- اختر الغرفة --</option>`;
         (roomsRes.data || []).forEach(room => {
@@ -1239,9 +1000,9 @@
       }
 
       // 4. Load Recent Reservations into Overview Table
-      const resRes = await window.api.getAllReservations();
+      const resRes = await api.getAllReservations();
       if (resRes.success) {
-        reservationsCache = resRes.data || [];
+        dashboardState.reservationsCache = resRes.data || [];
         renderOverviewTable();
       }
 
@@ -1253,7 +1014,7 @@
   }
 
   function renderOverviewTable() {
-    const recent = reservationsCache.slice(0, 8);
+    const recent = dashboardState.reservationsCache.slice(0, 8);
 
     if (recent.length === 0) {
       overviewTableBody.innerHTML = '';
@@ -1345,7 +1106,7 @@
         todayDateBadge.textContent = todayStr;
       }
 
-      const res = await window.api.getTodayCheckouts(todayStr);
+      const res = await api.getTodayCheckouts(todayStr);
       if (res && res.success) {
         const checkouts = res.data || [];
         renderTodayCheckoutsTable(checkouts);
@@ -1456,7 +1217,7 @@
     }
 
     try {
-      const res = await window.api.searchGuest({ phone: phoneVal, id_number: idVal });
+      const res = await api.searchGuest({ phone: phoneVal, id_number: idVal });
       if (res && res.success && res.guest) {
         const guest = res.guest;
 
@@ -1735,7 +1496,7 @@
     }
 
     try {
-      let res = await window.api.createReservation({
+      let res = await api.createReservation({
         guestName,
         guestPhone,
         guestIdNumber,
@@ -1763,7 +1524,7 @@
         });
 
         if (confirmed) {
-          res = await window.api.createReservation({
+          res = await api.createReservation({
             guestName,
             guestPhone,
             guestIdNumber,
@@ -1884,7 +1645,7 @@
 
   function initiateRoomBooking(roomId) {
     const targetId = parseInt(roomId, 10);
-    const targetRoom = roomsCache.find(r => r.id === targetId);
+    const targetRoom = dashboardState.roomsCache.find(r => r.id === targetId);
 
     // 1. Open the New Reservation Modal
     openNewReservationModal();
@@ -2021,9 +1782,9 @@
   // =========================================================================
   async function loadReservationsData() {
     try {
-      const res = await window.api.getAllReservations();
+      const res = await api.getAllReservations();
       if (res.success) {
-        reservationsCache = res.data || [];
+        dashboardState.reservationsCache = res.data || [];
         renderAllReservationsTable();
       }
     } catch (err) {
@@ -2034,11 +1795,11 @@
   function renderAllReservationsTable() {
     const query = (searchAllReservations.value || '').toLowerCase().trim();
 
-    const filtered = reservationsCache.filter(item => {
-      if (currentReservationFilter !== 'all') {
-        if (currentReservationFilter === 'ملغي') {
+    const filtered = dashboardState.reservationsCache.filter(item => {
+      if (dashboardState.currentReservationFilter !== 'all') {
+        if (dashboardState.currentReservationFilter === 'ملغي') {
           if (item.status !== 'ملغي' && item.status !== 'ملغي جزئي') return false;
-        } else if (item.status !== currentReservationFilter) {
+        } else if (item.status !== dashboardState.currentReservationFilter) {
           return false;
         }
       }
@@ -2155,7 +1916,7 @@
     btn.addEventListener('click', () => {
       resFilterTabs.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      currentReservationFilter = btn.dataset.filter;
+      dashboardState.currentReservationFilter = btn.dataset.filter;
       renderAllReservationsTable();
     });
   });
@@ -2169,13 +1930,13 @@
       return;
     }
 
-    if (reservationsCache.length === 0) {
+    if (dashboardState.reservationsCache.length === 0) {
       showToast('لا توجد حجوزات لتصديرها.', 'info');
       return;
     }
 
     try {
-      const exportRows = reservationsCache.map(r => ({
+      const exportRows = dashboardState.reservationsCache.map(r => ({
         'رقم الحجز': r.id,
         'اسم النزيل': r.guest_name,
         'رقم الجوال': r.guest_phone || '',
@@ -2228,7 +1989,7 @@
           return;
         }
 
-        const res = await window.api.bulkImportReservations(rows);
+        const res = await api.bulkImportReservations(rows);
         if (res.success && res.data) {
           showToast(`تم استيراد ${res.data.inserted} حجز بنجاح! (تم تخطي ${res.data.skipped})`, 'success');
           await loadReservationsData();
@@ -2252,14 +2013,14 @@
   async function loadRoomsData() {
     try {
       const [roomsRes, resRes] = await Promise.all([
-        window.api.getAllRooms(),
-        window.api.getAllReservations()
+        api.getAllRooms(),
+        api.getAllReservations()
       ]);
       if (roomsRes && roomsRes.success) {
-        roomsCache = roomsRes.data || [];
+        dashboardState.roomsCache = roomsRes.data || [];
       }
       if (resRes && resRes.success) {
-        reservationsCache = resRes.data || [];
+        dashboardState.reservationsCache = resRes.data || [];
       }
       renderRoomsGrid();
     } catch (err) {
@@ -2269,11 +2030,11 @@
 
   function renderRoomsGrid() {
     const todayStr = getLocalDateString();
-    const searchTerm = currentRoomSearch.trim().toLowerCase();
+    const searchTerm = dashboardState.currentRoomSearch.trim().toLowerCase();
 
-    const filtered = roomsCache.filter(room => {
+    const filtered = dashboardState.roomsCache.filter(room => {
       // 1. Status tab filter (unchanged behaviour)
-      if (currentRoomFilter !== 'all' && room.status !== currentRoomFilter) return false;
+      if (dashboardState.currentRoomFilter !== 'all' && room.status !== dashboardState.currentRoomFilter) return false;
 
       // 2. Search filter: room_number or type, case-insensitive
       if (searchTerm) {
@@ -2284,14 +2045,14 @@
 
       // 3. Booking-type filter: match against the room's active confirmed reservation.
       //    Rooms with no active reservation are excluded when a type filter is active.
-      if (currentRoomBookingType !== 'all') {
-        const activeRes = reservationsCache.find(
+      if (dashboardState.currentRoomBookingType !== 'all') {
+        const activeRes = dashboardState.reservationsCache.find(
           r => r.room_id === room.id &&
                r.status === 'مؤكد' &&
                r.check_in_date <= todayStr &&
                (r.check_out_date > todayStr || !r.check_out_date || r.booking_type === 'عقد مفتوح')
         );
-        if (!activeRes || activeRes.booking_type !== currentRoomBookingType) return false;
+        if (!activeRes || activeRes.booking_type !== dashboardState.currentRoomBookingType) return false;
       }
 
       return true;
@@ -2314,12 +2075,12 @@
 
       // 1. Actively occupied reservation today (check_in <= today AND (check_out > today OR open contract))
       const activeRes = (room.status === 'مشغولة')
-        ? reservationsCache.find(r => r.room_id === room.id && r.status === 'مؤكد' && r.check_in_date <= todayStr && (r.check_out_date > todayStr || !r.check_out_date || r.booking_type === 'عقد مفتوح'))
+        ? dashboardState.reservationsCache.find(r => r.room_id === room.id && r.status === 'مؤكد' && r.check_in_date <= todayStr && (r.check_out_date > todayStr || !r.check_out_date || r.booking_type === 'عقد مفتوح'))
         : null;
 
       // 2. Upcoming future reservation (check_in > today)
       const upcomingRes = (room.status === 'محجوزة' || room.status === 'متاحة')
-        ? reservationsCache
+        ? dashboardState.reservationsCache
             .filter(r => r.room_id === room.id && r.status === 'مؤكد' && r.check_in_date > todayStr)
             .sort((a, b) => a.check_in_date.localeCompare(b.check_in_date))[0]
         : null;
@@ -2446,7 +2207,7 @@
     btn.addEventListener('click', () => {
       roomsFilterTabs.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      currentRoomFilter = btn.dataset.roomFilter;
+      dashboardState.currentRoomFilter = btn.dataset.roomFilter;
       renderRoomsGrid();
     });
   });
@@ -2454,7 +2215,7 @@
   // Search rooms by room_number / type — re-render on every keystroke
   if (searchRoomsInput) {
     searchRoomsInput.addEventListener('input', () => {
-      currentRoomSearch = searchRoomsInput.value;
+      dashboardState.currentRoomSearch = searchRoomsInput.value;
       renderRoomsGrid();
     });
   }
@@ -2464,7 +2225,7 @@
     btn.addEventListener('click', () => {
       roomsBookingTypeTabs.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      currentRoomBookingType = btn.dataset.roomBookingType;
+      dashboardState.currentRoomBookingType = btn.dataset.roomBookingType;
       renderRoomsGrid();
     });
   });
@@ -2476,7 +2237,7 @@
     if (!card) return;
 
     const roomId = card.dataset.roomId;
-    const targetRoom = roomsCache.find(r => r.id === parseInt(roomId, 10));
+    const targetRoom = dashboardState.roomsCache.find(r => r.id === parseInt(roomId, 10));
     if (targetRoom && (targetRoom.status === 'متاحة' || targetRoom.status === 'محجوزة')) {
       initiateRoomBooking(roomId);
     }
@@ -2489,7 +2250,7 @@
     const roomId = parseInt(select.dataset.roomId, 10);
     const newStatus = select.value;
 
-    const targetRoom = roomsCache.find(r => r.id === roomId);
+    const targetRoom = dashboardState.roomsCache.find(r => r.id === roomId);
     if (targetRoom && targetRoom.status === 'مشغولة') {
       showToast(`لا يمكن تغيير حالة الغرفة (${targetRoom.room_number}) لأنها مشغولة بحجز نشط. يجب تسجيل المغادرة أولاً.`, 'error');
       renderRoomsGrid();
@@ -2497,7 +2258,7 @@
     }
 
     try {
-      const res = await window.api.updateRoomStatus(roomId, newStatus);
+      const res = await api.updateRoomStatus(roomId, newStatus);
       if (res.success) {
         showToast(`تم تحديث حالة الغرفة إلى "${newStatus}"`, 'success');
         await loadRoomsData();
@@ -2536,7 +2297,7 @@
     }
 
     try {
-      const res = await window.api.addRoom({ room_number, type, price_per_night, status });
+      const res = await api.addRoom({ room_number, type, price_per_night, status });
       if (res.success) {
         showToast(`تمت إضافة الغرفة ${room_number} بنجاح!`, 'success');
         addRoomForm.reset();
@@ -2552,7 +2313,7 @@
 
   // Edit Room Modal Functions
   function openEditRoomModal(roomId) {
-    const room = roomsCache.find(r => r.id === parseInt(roomId, 10));
+    const room = dashboardState.roomsCache.find(r => r.id === parseInt(roomId, 10));
     if (!room) {
       showToast('لم يتم العثور على بيانات الغرفة.', 'error');
       return;
@@ -2641,7 +2402,7 @@
       const type = editRoomType.value.trim();
       const price_per_night = parseFloat(editRoomPrice.value) || 0;
 
-      const currentRoom = roomsCache.find(r => r.id === id);
+      const currentRoom = dashboardState.roomsCache.find(r => r.id === id);
       const isOccupied = currentRoom && currentRoom.status === 'مشغولة';
       const status = isOccupied ? 'مشغولة' : editRoomStatus.value;
 
@@ -2651,7 +2412,7 @@
       }
 
       try {
-        const res = await window.api.updateRoom({ id, room_number, type, price_per_night, status });
+        const res = await api.updateRoom({ id, room_number, type, price_per_night, status });
         if (res && res.success) {
           showToast(`تم حفظ وتحديث بيانات الغرفة ${room_number} بنجاح! ✓`, 'success');
           closeEditRoomModal();
@@ -2673,7 +2434,7 @@
       const roomNum = editRoomNumber.value.trim();
       if (!id) return;
 
-      const currentRoom = roomsCache.find(r => r.id === id);
+      const currentRoom = dashboardState.roomsCache.find(r => r.id === id);
       if (currentRoom && currentRoom.status === 'مشغولة') {
         showToast(`لا يمكن حذف الغرفة (${roomNum}) لأنها مشغولة بحجز نشط حالياً. يرجى إنهاء أو إلغاء الحجز أولاً.`, 'error');
         return;
@@ -2691,7 +2452,7 @@
       }
 
       try {
-        const res = await window.api.deleteRoom(id);
+        const res = await api.deleteRoom(id);
         if (res && res.success) {
           showToast(`تم حذف الغرفة رقم ${roomNum} بنجاح.`, 'success');
           closeEditRoomModal();
@@ -2722,7 +2483,7 @@
       guestsCurrentPage = Math.max(1, page);
       const query = (searchGuests ? searchGuests.value : '').trim();
 
-      const res = await window.api.getGuestsPaginated({
+      const res = await api.getGuestsPaginated({
         page: guestsCurrentPage,
         limit: guestsPageLimit,
         search: query,
@@ -2730,7 +2491,7 @@
       });
 
       if (res && res.success) {
-        guestsCache = res.data || [];
+        dashboardState.guestsCache = res.data || [];
         const pag = res.pagination || {};
         guestsTotalCount = res.totalCount !== undefined ? res.totalCount : (pag.totalCount || 0);
         guestsTotalPages = res.totalPages !== undefined ? res.totalPages : (pag.totalPages || 1);
@@ -2748,7 +2509,7 @@
   function renderGuestsTable() {
     if (guestsCountBadge) guestsCountBadge.textContent = guestsTotalCount.toLocaleString();
 
-    if (!guestsCache || guestsCache.length === 0) {
+    if (!dashboardState.guestsCache || dashboardState.guestsCache.length === 0) {
       guestsTableBody.innerHTML = '';
       if (guestsEmpty) guestsEmpty.style.display = 'block';
       return;
@@ -2756,14 +2517,14 @@
 
     if (guestsEmpty) guestsEmpty.style.display = 'none';
 
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
     const isAdmin = activeRole === 'Admin';
 
     document.querySelectorAll('#view-guests .admin-only').forEach(el => {
       el.style.display = isAdmin ? '' : 'none';
     });
 
-    guestsTableBody.innerHTML = guestsCache.map(g => {
+    guestsTableBody.innerHTML = dashboardState.guestsCache.map(g => {
       const totalStays = parseInt(g.total_stays, 10) || 0;
       const totalSpent = parseFloat(g.total_spent) || 0;
       const isBanned = Number(g.is_banned) === 1;
@@ -2883,7 +2644,7 @@
       const guestName = btn.dataset.name || 'النزيل';
       const isCurrentlyBanned = btn.dataset.banned === '1';
 
-      const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : 'User');
+      const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : 'User');
       if (activeRole !== 'Admin') {
         showToast('عذراً: هذا الإجراء مخصص لمدير النظام فقط.', 'error');
         return;
@@ -2902,7 +2663,7 @@
         if (!confirmed) return;
 
         try {
-          const res = await window.api.setGuestBanStatus({ guestId, isBanned: 0, reason: '' });
+          const res = await api.setGuestBanStatus({ guestId, isBanned: 0, reason: '' });
           if (res && res.success) {
             showToast(`تم إلغاء الحظر عن النزيل "${guestName}" بنجاح!`, 'success');
             await loadGuestsData();
@@ -2925,7 +2686,7 @@
         if (reason === null) return; // User cancelled
 
         try {
-          const res = await window.api.setGuestBanStatus({ guestId, isBanned: 1, reason });
+          const res = await api.setGuestBanStatus({ guestId, isBanned: 1, reason });
           if (res && res.success) {
             showToast(`تم إدراج النزيل "${guestName}" في قائمة الحظر بنجاح!`, 'success');
             await loadGuestsData();
@@ -2946,7 +2707,7 @@
     const targetId = parseInt(guestId, 10);
     if (!targetId || isNaN(targetId)) return;
 
-    const guest = (guestsCache || []).find(g => g.id === targetId);
+    const guest = (dashboardState.guestsCache || []).find(g => g.id === targetId);
     if (!guest) {
       showToast('بيانات النزيل غير متوفرة في الصفحة الحالية.', 'error');
       return;
@@ -2993,7 +2754,7 @@
           btnSaveEditGuest.textContent = 'جاري الحفظ...';
         }
 
-        const res = await window.api.updateGuest({ guestId, name, phone, id_number });
+        const res = await api.updateGuest({ guestId, name, phone, id_number });
         if (res && res.success) {
           showToast('تم تحديث بيانات النزيل بنجاح! ✓', 'success');
           closeEditGuestModal();
@@ -3021,8 +2782,8 @@
 
     try {
       showToast('جاري تحضير ملف Excel لكافة النزلاء...', 'info');
-      const allRes = await window.api.getAllGuests();
-      const allGuestsList = (allRes && allRes.data) ? allRes.data : guestsCache;
+      const allRes = await api.getAllGuests();
+      const allGuestsList = (allRes && allRes.data) ? allRes.data : dashboardState.guestsCache;
 
       if (!allGuestsList || allGuestsList.length === 0) {
         showToast('لا توجد بيانات نزلاء لتصديرها.', 'info');
@@ -3192,7 +2953,7 @@
           }
 
           // إرسال المصفوفة عبر IPC إلى الباك إند
-          const res = await window.api.importGuests(guestsData);
+          const res = await api.importGuests(guestsData);
 
           if (res.success) {
             const count = res.importedCount ?? res.data?.inserted ?? 0;
@@ -3246,7 +3007,7 @@
     if (insertedEl) insertedEl.textContent = importedCount;
     if (updatedEl) updatedEl.textContent = updatedCount;
     if (totalEl) totalEl.textContent = totalCount;
-    if (totalSystemEl) totalSystemEl.textContent = guestsCache.length;
+    if (totalSystemEl) totalSystemEl.textContent = dashboardState.guestsCache.length;
 
     const dedupNotice = document.getElementById('import-modal-dedup-notice');
     const updatedInline = document.getElementById('import-modal-updated-inline');
@@ -3349,13 +3110,13 @@
     }
 
     // Find in cache or fetch
-    let res = (reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
+    let res = (dashboardState.reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
     if (!res) {
       try {
-        const allRes = await window.api.getAllReservations();
+        const allRes = await api.getAllReservations();
         if (allRes && allRes.success && allRes.data) {
-          reservationsCache = allRes.data;
-          res = reservationsCache.find(r => parseInt(r.id, 10) === targetId);
+          dashboardState.reservationsCache = allRes.data;
+          res = dashboardState.reservationsCache.find(r => parseInt(r.id, 10) === targetId);
         }
       } catch (err) {
         console.error('Error fetching reservation for payment:', err);
@@ -3481,7 +3242,7 @@
         }
       }
 
-      const activeUserId = localStorage.getItem('currentUserId') || (currentUser ? currentUser.id : null);
+      const activeUserId = localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null);
 
       try {
         const btnSave = document.getElementById('btn-save-payment');
@@ -3490,7 +3251,7 @@
           btnSave.textContent = 'جاري الحفظ...';
         }
 
-        const res = await window.api.addPayment({
+        const res = await api.addPayment({
           reservationId: resId,
           newAmount: newAmount,
           paymentMethod: method,
@@ -3658,7 +3419,7 @@
     const diffMs = Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1);
     const nights = Math.max(1, Math.round(diffMs / 86400000));
 
-    const room = roomsCache.find(rm => rm.id === res.room_id);
+    const room = dashboardState.roomsCache.find(rm => rm.id === res.room_id);
     const pricePerNight = parseFloat(res.custom_nightly_price || res.price_per_night || (room ? room.price_per_night : 0)) || 0;
     const isContract = res.booking_type === 'عقد مفتوح';
     const calculatedBase = isContract
@@ -3762,7 +3523,7 @@
       if (!confirmed) return;
 
       try {
-        const res = await window.api.checkoutReservation(resId, {
+        const res = await api.checkoutReservation(resId, {
           finalTotalPrice: finalTotal,
           settleAmount: 0,
           discountAmount: discAmount,
@@ -3814,7 +3575,7 @@
           btnConfirmSettleCheckout.textContent = 'جاري التصفية...';
         }
 
-        const res = await window.api.checkoutReservation(resId, {
+        const res = await api.checkoutReservation(resId, {
           finalTotalPrice: finalTotal,
           settleAmount: payNow,
           paymentMethod: method,
@@ -3938,13 +3699,13 @@
     }
 
     // Find reservation in cache or fetch
-    let res = (reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
+    let res = (dashboardState.reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
     if (!res) {
       try {
-        const allRes = await window.api.getAllReservations();
+        const allRes = await api.getAllReservations();
         if (allRes && allRes.success && allRes.data) {
-          reservationsCache = allRes.data;
-          res = reservationsCache.find(r => parseInt(r.id, 10) === targetId);
+          dashboardState.reservationsCache = allRes.data;
+          res = dashboardState.reservationsCache.find(r => parseInt(r.id, 10) === targetId);
         }
       } catch (err) {
         console.error('Error fetching reservation for extension:', err);
@@ -4113,11 +3874,11 @@
       }
 
       try {
-        const activeUserId = localStorage.getItem('currentUserId') || (currentUser ? currentUser.id : null);
+        const activeUserId = localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null);
         const nightlyRate = parseFloat(extendNightlyRateInput ? extendNightlyRateInput.value : NaN);
         const discount = Math.max(0, parseFloat(extendDiscountInput ? extendDiscountInput.value : 0) || 0);
 
-        const res = await window.api.extendReservation({
+        const res = await api.extendReservation({
           reservationId: currentExtendingReservation.id,
           newCheckOutDate: newDate,
           customNightlyPrice: !isNaN(nightlyRate) && nightlyRate >= 0 ? nightlyRate : undefined,
@@ -4187,10 +3948,10 @@
         return;
       }
 
-      const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : 'User');
+      const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : 'User');
 
       try {
-        const res = await window.api.addCustomer({ name, phone, id_number }, activeRole);
+        const res = await api.addCustomer({ name, phone, id_number }, activeRole);
         if (res.success) {
           showToast(`تم تسجيل بيانات النزيل "${name}" بنجاح!`, 'success');
           addCustomerForm.reset();
@@ -4210,13 +3971,13 @@
   // VIEW 5: ADMIN PANEL & USER MANAGEMENT (RBAC)
   // =========================================================================
   async function loadAdminData() {
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
     if (activeRole !== 'Admin') return;
 
     try {
-      const res = await window.api.getAllUsers();
+      const res = await api.getAllUsers();
       if (res.success) {
-        usersCache = res.data || [];
+        dashboardState.usersCache = res.data || [];
         renderUsersTable();
       } else {
         showToast(res.error || 'تعذر تحميل المستخدمين.', 'error');
@@ -4227,7 +3988,7 @@
   }
 
   function renderUsersTable() {
-    usersTableBody.innerHTML = usersCache.map(u => {
+    usersTableBody.innerHTML = dashboardState.usersCache.map(u => {
       const isAdmin = u.role === 'Admin';
       const isDefaultAdmin = u.username.toLowerCase() === 'admin';
 
@@ -4236,7 +3997,7 @@
           <td style="font-family: monospace; font-weight: 700; color: var(--primary);">#${u.id}</td>
           <td style="font-weight: 700; font-size: 0.9rem;">
             ${escapeHtml(u.username)}
-            ${currentUser && u.id === currentUser.id ? ' <span style="font-size: 0.7rem; color: var(--success); font-weight: 600;">(أنت)</span>' : ''}
+            ${dashboardState.currentUser && u.id === dashboardState.currentUser.id ? ' <span style="font-size: 0.7rem; color: var(--success); font-weight: 600;">(أنت)</span>' : ''}
           </td>
           <td>
             <span class="${isAdmin ? 'badge-role-admin' : 'badge-role-staff'}">
@@ -4245,7 +4006,7 @@
           </td>
           <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(String(u.created_at || '').split(' ')[0])}</td>
           <td style="text-align: center;">
-            ${!isDefaultAdmin && (!currentUser || u.id !== currentUser.id) ? `
+            ${!isDefaultAdmin && (!dashboardState.currentUser || u.id !== dashboardState.currentUser.id) ? `
               <button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${u.id}" data-username="${escapeHtml(u.username)}" title="حذف المستخدم">
                 حذف
               </button>
@@ -4269,10 +4030,10 @@
       return;
     }
 
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : 'User');
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : 'User');
 
     try {
-      const res = await window.api.addUser({ username, password, role }, activeRole);
+      const res = await api.addUser({ username, password, role }, activeRole);
       if (res.success) {
         showToast(`تم إنشاء حساب "${username}" بصلاحية ${role} بنجاح!`, 'success');
         addUserForm.reset();
@@ -4296,8 +4057,8 @@
     }
 
     try {
-      const res = await window.api.updateUserPassword({
-        userId: currentUser ? currentUser.id : null,
+      const res = await api.updateUserPassword({
+        userId: dashboardState.currentUser ? dashboardState.currentUser.id : null,
         newPassword
       });
 
@@ -4321,7 +4082,7 @@
 
     const userId = btn.dataset.id;
     const username = btn.dataset.username;
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : 'User');
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : 'User');
 
     const confirmed = await showConfirmDialog({
       title: 'حذف مستخدم من النظام',
@@ -4333,7 +4094,7 @@
 
     if (confirmed) {
       try {
-        const res = await window.api.deleteUser(userId, activeRole);
+        const res = await api.deleteUser(userId, activeRole);
         if (res.success) {
           showToast(`تم حذف المستخدم "${username}" بنجاح.`, 'info');
           await loadAdminData();
@@ -4359,7 +4120,7 @@
   const btnSubmitFactoryReset = document.getElementById('btn-submit-factory-reset');
 
   function openFactoryResetModal() {
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
     if (activeRole !== 'Admin') {
       showToast('غير مصرح: تصفير بيانات التطبيق يتطلب صلاحيات مدير النظام (Admin).', 'error');
       return;
@@ -4419,7 +4180,7 @@
       }
 
       try {
-        const res = await window.api.factoryResetDatabase(pwd);
+        const res = await api.factoryResetDatabase(pwd);
         if (res && res.success) {
           showToast(res.message || 'تم تصفير بيانات النظام بنجاح واستعادة تهيئة المصنع!', 'success');
           closeFactoryResetModal();
@@ -4463,7 +4224,7 @@
     currentInvoiceReservationId = targetId;
 
     try {
-      const res = await window.api.getInvoiceData(targetId);
+      const res = await api.getInvoiceData(targetId);
       if (!res || !res.success || !res.data) {
         showToast(res?.error || 'تعذر تحميل بيانات الفاتورة.', 'error');
         return;
@@ -4676,7 +4437,7 @@
     }
 
     try {
-      const res = await window.api.getRoomRevenue(targetId);
+      const res = await api.getRoomRevenue(targetId);
       if (!res || !res.success || !res.data) {
         if (roomRevenueContent) {
           roomRevenueContent.innerHTML = `
@@ -4957,7 +4718,7 @@
     try {
       const start = startDate || getLocalDateString();
       const end = endDate || start;
-      const res = await window.api.getShiftAuditReport({ startDate: start, endDate: end });
+      const res = await api.getShiftAuditReport({ startDate: start, endDate: end });
       if (!res || !res.success || !res.data) {
         showToast(res?.error || 'تعذر استخراج تقرير إقفال الوردية.', 'error');
         return;
@@ -4992,7 +4753,7 @@
                 <div>التاريخ المستهدف: <strong>${rep.date}</strong></div>
               `}
               <div>وقت الاستخراج: <span>${printTime}</span></div>
-              <div>المشرف المنفذ: <strong>${escapeHtml(currentUser?.username || 'الإدارة')}</strong></div>
+              <div>المشرف المنفذ: <strong>${escapeHtml(dashboardState.currentUser?.username || 'الإدارة')}</strong></div>
             </div>
           </div>
 
@@ -5315,7 +5076,7 @@
           return;
         }
         showToast('جاري إنشاء وحفظ ملف السند بصيغة PDF...', 'info');
-        const res = await window.api.printToPdf({
+        const res = await api.printToPdf({
           html: invoicePrintableArea.innerHTML,
           title: 'سند استلام',
           defaultFilename: `receipt_${currentInvoiceReservationId || 'reservation'}.pdf`
@@ -5338,7 +5099,7 @@
           showToast('لا توجد بيانات سند للمعاينة.', 'error');
           return;
         }
-        await window.api.openPrintPreviewWindow({
+        await api.openPrintPreviewWindow({
           html: invoicePrintableArea.innerHTML,
           title: 'معاينة سند الاستلام'
         });
@@ -5444,7 +5205,7 @@
       }
 
       try {
-        const res = await window.api.updateReservationReceipt({
+        const res = await api.updateReservationReceipt({
           reservationId: resId,
           guestName,
           guestPhone,
@@ -5518,7 +5279,7 @@
           ? `shift_audit_${currentShiftAuditStartDate}_to_${currentShiftAuditEndDate}.pdf`
           : `shift_audit_${getLocalDateString()}.pdf`;
 
-        const res = await window.api.printToPdf({
+        const res = await api.printToPdf({
           html: shiftAuditContent.innerHTML,
           title: title,
           defaultFilename: defaultFilename
@@ -5545,7 +5306,7 @@
         const title = isMultiDay
           ? `معاينة تقرير إقفال الفترة (${formatArabicDateRange(currentShiftAuditStartDate, currentShiftAuditEndDate)})`
           : 'معاينة تقرير إقفال الوردية والموازنة المالية';
-        await window.api.openPrintPreviewWindow({
+        await api.openPrintPreviewWindow({
           html: shiftAuditContent.innerHTML,
           title: title
         });
@@ -5559,7 +5320,7 @@
   if (btnBackupDb) {
     btnBackupDb.addEventListener('click', async () => {
       try {
-        const res = await window.api.createBackup();
+        const res = await api.createBackup();
         if (res && res.canceled) return;
         if (res && res.success) {
           showToast(res.message || 'تم حفظ النسخة الاحتياطية لقاعدة البيانات بنجاح!', 'success');
@@ -5585,7 +5346,7 @@
         return;
       }
       try {
-        const res = await window.api.restoreBackup();
+        const res = await api.restoreBackup();
         if (res && res.canceled) return;
         if (res && res.success) {
           showToast(res.message || 'تمت استعادة قاعدة البيانات بنجاح!', 'success');
@@ -5627,7 +5388,7 @@
   async function openDailyBackupModal() {
     if (!dailyBackupModal) return;
     try {
-      const res = await window.api.getDailyBackupStatus();
+      const res = await api.getDailyBackupStatus();
       if (!res || !res.success) {
         showToast(res?.error || 'تعذر جلب حالة النسخ الاحتياطي اليومي.', 'error');
         return;
@@ -5739,7 +5500,7 @@
                 return;
               }
               try {
-                const restoreRes = await window.api.restoreDailyBackup(targetPath);
+                const restoreRes = await api.restoreDailyBackup(targetPath);
                 if (restoreRes && restoreRes.success) {
                   showToast('تمت استعادة قاعدة البيانات بنجاح من النسخة المحددة!', 'success');
                   dailyBackupModal.style.display = 'none';
@@ -5788,7 +5549,7 @@
   if (btnOpenDailyBackupsFolder) {
     btnOpenDailyBackupsFolder.addEventListener('click', async () => {
       try {
-        await window.api.openBackupsFolder();
+        await api.openBackupsFolder();
       } catch (err) {
         showToast(`تعذر فتح مجلد النسخ: ${err.message}`, 'error');
       }
@@ -5802,7 +5563,7 @@
         btnChangeDailyBackupFolder.disabled = true;
         btnChangeDailyBackupFolder.innerHTML = '<span>جاري الاختيار... ⏳</span>';
 
-        const res = await window.api.selectBackupFolder();
+        const res = await api.selectBackupFolder();
 
         btnChangeDailyBackupFolder.disabled = false;
         btnChangeDailyBackupFolder.innerHTML = originalHtml;
@@ -5835,7 +5596,7 @@
         return;
       }
       try {
-        const res = await window.api.resetBackupFolder();
+        const res = await api.resetBackupFolder();
         if (res && res.success) {
           showToast('تمت استعادة مجلد الحفظ الافتراضي بنجاح.', 'info');
           await openDailyBackupModal();
@@ -5855,7 +5616,7 @@
         const originalHtml = btnTriggerDailyBackupNow.innerHTML;
         btnTriggerDailyBackupNow.innerHTML = 'جاري النسخ... ⏳';
 
-        const res = await window.api.runDailyBackupNow();
+        const res = await api.runDailyBackupNow();
         if (res && res.success) {
           showToast(`تم أخذ نسخة احتياطية بنجاح! (${res.filename})`, 'success');
           await openDailyBackupModal();
@@ -5879,8 +5640,8 @@
   }
 
   // Live IPC Listener for 12:00 AM Automated Daily Backup
-  if (window.api && window.api.onDailyBackupEvent) {
-    window.api.onDailyBackupEvent((eventData) => {
+  if (window.api && api.onDailyBackupEvent) {
+    api.onDailyBackupEvent((eventData) => {
       if (eventData && eventData.success) {
         showToast(`🕛 تم أخذ النسخة الاحتياطية اليومية بنجاح (12:00 AM):\n${eventData.filename}`, 'success');
         if (dailyBackupModal && dailyBackupModal.style.display === 'flex') {
@@ -5916,7 +5677,7 @@
 
   async function sendReservationWhatsApp(reservationId) {
     const targetId = parseInt(reservationId, 10);
-    const res = reservationsCache.find(r => r.id === targetId);
+    const res = dashboardState.reservationsCache.find(r => r.id === targetId);
     if (!res) {
       showToast('لم يتم العثور على بيانات هذا الحجز.', 'error');
       return;
@@ -5945,7 +5706,7 @@
 
     try {
       showToast(`جاري فتح محادثة واتساب مع النزيل: ${res.guest_name}...`, 'info');
-      const response = await window.api.openWhatsApp(whatsappUrl);
+      const response = await api.openWhatsApp(whatsappUrl);
       if (response && response.success) {
         showToast('تم فتح محادثة واتساب بنجاح! ✓', 'success');
       } else {
@@ -6031,7 +5792,7 @@
     if (action === 'quick-ready') {
       const roomId = btn.dataset.roomId;
       try {
-        const res = await window.api.updateRoomStatus(roomId, 'متاحة');
+        const res = await api.updateRoomStatus(roomId, 'متاحة');
         if (res.success) {
           showToast('تم تحديث حالة الغرفة إلى "متاحة" وجاهزة للتسكين بنجاح! ✓', 'success');
           await loadRoomsData();
@@ -6058,10 +5819,10 @@
     }
 
     if (action === 'checkout') {
-      let resData = reservationsCache.find(r => r.id === id);
+      let resData = dashboardState.reservationsCache.find(r => r.id === id);
       if (!resData) {
         try {
-          const invRes = await window.api.getInvoiceData(id);
+          const invRes = await api.getInvoiceData(id);
           if (invRes && invRes.success && invRes.data) {
             resData = invRes.data;
           }
@@ -6083,7 +5844,7 @@
 
       if (confirmed) {
         try {
-          const res = await window.api.checkoutReservation(id);
+          const res = await api.checkoutReservation(id);
           if (res.success) {
             showToast(`تم تسجيل خروج الحجز #${id} بنجاح.`, 'success');
             await loadOverviewData();
@@ -6097,13 +5858,13 @@
         }
       }
     } else if (action === 'cancel') {
-      let targetRes = reservationsCache.find(r => r.id === id);
+      let targetRes = dashboardState.reservationsCache.find(r => r.id === id);
       if (!targetRes) {
         try {
-          const allRes = await window.api.getAllReservations();
+          const allRes = await api.getAllReservations();
           if (allRes && allRes.data) {
-            reservationsCache = allRes.data;
-            targetRes = reservationsCache.find(r => r.id === id);
+            dashboardState.reservationsCache = allRes.data;
+            targetRes = dashboardState.reservationsCache.find(r => r.id === id);
           }
         } catch (e) {}
       }
@@ -6132,7 +5893,7 @@
       }
 
       try {
-        const res = await window.api.cancelReservation(cancelPayload);
+        const res = await api.cancelReservation(cancelPayload);
         if (res && res.success) {
           await loadOverviewData();
           await loadReservationsData();
@@ -6210,18 +5971,18 @@
   }
 
   async function doLogout() {
-    const storedLogId = localStorage.getItem('ahmed_hotel_log_id');
+    const storedLogId = localStorage.getItem(STORAGE_KEYS.logId);
     try {
-      if (window.api && window.api.logout) {
-        await window.api.logout(storedLogId ? parseInt(storedLogId, 10) : null);
+      if (window.api && api.logout) {
+        await api.logout(storedLogId ? parseInt(storedLogId, 10) : null);
       }
     } catch (err) {
       console.warn('Logout API error:', err);
     } finally {
-      localStorage.removeItem('ahmed_hotel_log_id');
-      localStorage.removeItem('currentUserRole');
-      localStorage.removeItem('currentUsername');
-      localStorage.removeItem('currentUserId');
+      localStorage.removeItem(STORAGE_KEYS.logId);
+      localStorage.removeItem(STORAGE_KEYS.currentUserRole);
+      localStorage.removeItem(STORAGE_KEYS.currentUsername);
+      localStorage.removeItem(STORAGE_KEYS.currentUserId);
       window.location.href = 'login.html';
     }
   }
@@ -6229,7 +5990,7 @@
   // Open DB folder
   btnOpenDb.addEventListener('click', async () => {
     try {
-      await window.api.openDbFolder();
+      await api.openDbFolder();
     } catch (err) {
       console.error(err);
     }
@@ -6239,13 +6000,13 @@
   // VIEW 6: EMPLOYEE ACTIVITY LOGS (سجل نشاط الموظفين - Admin Only)
   // =========================================================================
   async function loadLogsData() {
-    const activeRole = localStorage.getItem('currentUserRole') || (currentUser ? currentUser.role : null);
+    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
     if (activeRole !== 'Admin') return;
 
     try {
-      const res = await window.api.getEmployeeLogs();
+      const res = await api.getEmployeeLogs();
       if (res.success) {
-        logsCache = res.data || [];
+        dashboardState.logsCache = res.data || [];
         renderLogsTable();
       } else {
         showToast(res.error || 'تعذر تحميل سجل الموظفين.', 'error');
@@ -6258,7 +6019,7 @@
   function renderLogsTable() {
     const query = (searchLogs.value || '').toLowerCase().trim();
 
-    const filtered = logsCache.filter(log => {
+    const filtered = dashboardState.logsCache.filter(log => {
       if (!query) return true;
       return (
         String(log.id || '').includes(query) ||
@@ -6333,26 +6094,26 @@
   // --- INITIALIZE APPLICATION ---
   async function init() {
     // 1. Immediate UI state from localStorage cache
-    const cachedRole = localStorage.getItem('currentUserRole');
+    const cachedRole = localStorage.getItem(STORAGE_KEYS.currentUserRole);
     if (cachedRole) {
       applyRbacUi(cachedRole);
       userDisplayRole.textContent = cachedRole === 'Admin' ? 'مدير نظام (Admin)' : 'مستخدم (User)';
     }
 
     try {
-      const info = await window.api.getAppInfo();
+      const info = await api.getAppInfo();
       if (info && info.user) {
-        currentUser = info.user;
-        userDisplayName.textContent = currentUser.username;
-        userDisplayRole.textContent = currentUser.role === 'Admin' ? 'مدير نظام (Admin)' : 'مستخدم (User)';
-        localStorage.setItem('currentUserRole', currentUser.role);
-        localStorage.setItem('currentUsername', currentUser.username);
-        localStorage.setItem('currentUserId', String(currentUser.id));
+        dashboardState.currentUser = info.user;
+        userDisplayName.textContent = dashboardState.currentUser.username;
+        userDisplayRole.textContent = dashboardState.currentUser.role === 'Admin' ? 'مدير نظام (Admin)' : 'مستخدم (User)';
+        localStorage.setItem(STORAGE_KEYS.currentUserRole, dashboardState.currentUser.role);
+        localStorage.setItem(STORAGE_KEYS.currentUsername, dashboardState.currentUser.username);
+        localStorage.setItem(STORAGE_KEYS.currentUserId, String(dashboardState.currentUser.id));
 
-        applyRbacUi(currentUser.role);
+        applyRbacUi(dashboardState.currentUser.role);
 
         if (info.logId) {
-          localStorage.setItem('ahmed_hotel_log_id', String(info.logId));
+          localStorage.setItem(STORAGE_KEYS.logId, String(info.logId));
         }
       }
       if (info && info.dbPath) {
@@ -6363,7 +6124,7 @@
 
       // Initialize Daily Backup Tooltip
       try {
-        const backupStatus = await window.api.getDailyBackupStatus();
+        const backupStatus = await api.getDailyBackupStatus();
         if (backupStatus && backupStatus.success && backupStatus.data && btnDailyBackupModal) {
           const d = backupStatus.data;
           btnDailyBackupModal.title = `النسخ الاحتياطي التلقائي: يومياً الساعة 12:00 منتصف الليل\nآخر نسخة: ${d.lastDailyBackupFile || 'اليوم'}`;
@@ -6375,17 +6136,6 @@
 
     // Default view: overview
     window.switchView('overview');
-  }
-
-  // Escape HTML helper
-  function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
   }
 
   window.openInvoiceModal = openInvoiceModal;
