@@ -1,6 +1,7 @@
 import { api } from './dashboard/api.js';
 import { getBookingTypeBadge, getPaymentStatusBadge, getReservationStatusBadge, getRoomStatusBadge } from './dashboard/badges.js';
 import { STORAGE_KEYS } from './dashboard/constants.js';
+import { createNavigation } from './dashboard/navigation.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
 import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
@@ -482,69 +483,25 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     });
   }
 
-  // --- TAB / VIEW NAVIGATION SYSTEM ---
-  // PERFORMANCE: Section visibility is switched INSTANTLY (synchronous DOM update).
-  // Heavy data-loading calls are then deferred via requestAnimationFrame so the
-  // browser paints the new empty view first, then fills it — zero navigation freeze.
-  window.switchView = function (targetView) {
-    const activeRole = localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null);
-    // RBAC Security Guard: Protect admin and logs views
-    if ((targetView === 'admin' || targetView === 'logs') && activeRole !== 'Admin') {
-      showToast('Access Denied: Admin privileges required. (عذراً: هذا القسم مخصص لمدير النظام فقط)', 'error');
-      targetView = 'overview';
+  const navigation = createNavigation({
+    navLinks,
+    navAdmin,
+    navLogs,
+    viewSections,
+    topbarHeading,
+    topbarSubheading,
+    getActiveRole: () => localStorage.getItem(STORAGE_KEYS.currentUserRole) || (dashboardState.currentUser ? dashboardState.currentUser.role : null),
+    showToast,
+    loadViews: {
+      overview: loadOverviewData,
+      reservations: loadReservationsData,
+      rooms: loadRoomsData,
+      guests: loadGuestsData,
+      admin: loadAdminData,
+      logs: loadLogsData
     }
-
-    // 1. INSTANT: Update navigation links active state (pure CSS class toggle — zero reflow)
-    navLinks.forEach(link => {
-      link.classList.toggle('active', link.dataset.section === targetView);
-    });
-
-    // 2. INSTANT: Hide all sections, show target (simple display toggle — no layout calc)
-    Object.keys(viewSections).forEach(key => {
-      const section = viewSections[key];
-      if (section) {
-        section.style.display = key === targetView ? 'block' : 'none';
-      }
-    });
-
-    // 3. INSTANT: Update topbar text (text swap — negligible cost)
-    const titleMap = {
-      overview: ['ريحانة للوحدات السكنية', 'Rayhana Suites • لوحة التحكم وإدارة العمليات'],
-      reservations: ['سجل وإدارة الحجوزات', 'عرض وتتبع جميع الحجوزات المؤكدة والمكتملة والملغاة'],
-      rooms: ['إدارة الغرف الفندقية', 'متابعة حالات الإشغال والغرف المتاحة ودورة النظافة'],
-      guests: ['دليل وسجل النزلاء', 'Guest Directory • بيانات النزلاء وسجل الإقامات السابقة'],
-      admin: ['لوحة الإدارة والمستخدمين', 'Admin Panel • إضافة وتعديل المستخدمين وتعيين الصلاحيات'],
-      logs: ['سجل نشاط وحضور الموظفين', 'Employee Logs • متابعة أوقات تسجيل الدخول والخروج لكافة الموظفين']
-    };
-    if (titleMap[targetView]) {
-      topbarHeading.textContent = titleMap[targetView][0];
-      topbarSubheading.textContent = titleMap[targetView][1];
-    }
-
-    // 4. DEFERRED: Load data AFTER browser has painted the new blank section.
-    // requestAnimationFrame ensures the paint happens before heavy JS executes.
-    requestAnimationFrame(() => {
-      switch (targetView) {
-        case 'overview':     loadOverviewData();     break;
-        case 'reservations': loadReservationsData(); break;
-        case 'rooms':        loadRoomsData();        break;
-        case 'guests':       loadGuestsData();       break;
-        case 'admin':        loadAdminData();        break;
-        case 'logs':         loadLogsData();         break;
-      }
-    });
-  };
-
-  // Attach click listeners to sidebar links
-  navLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      const target = link.dataset.section;
-      if (target) {
-        window.switchView(target);
-      }
-    });
   });
+  window.switchView = navigation.switchView;
 
   // --- AUTO CALCULATE TOTAL PRICE & REMAINING BALANCE ---
   let isPaidAmountCustomized = false;
@@ -6079,24 +6036,12 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   searchLogs.addEventListener('input', renderLogsTable);
   btnRefreshLogs.addEventListener('click', loadLogsData);
 
-  function applyRbacUi(role) {
-    const isAdmin = role === 'Admin';
-    if (navAdmin) navAdmin.style.display = isAdmin ? 'flex' : 'none';
-    if (navLogs) navLogs.style.display = isAdmin ? 'flex' : 'none';
-
-    // If 'User', completely hide user management sections/buttons
-    const adminElements = document.querySelectorAll('.admin-only, [data-role-required="Admin"]');
-    adminElements.forEach(el => {
-      el.style.display = isAdmin ? '' : 'none';
-    });
-  }
-
   // --- INITIALIZE APPLICATION ---
   async function init() {
     // 1. Immediate UI state from localStorage cache
     const cachedRole = localStorage.getItem(STORAGE_KEYS.currentUserRole);
     if (cachedRole) {
-      applyRbacUi(cachedRole);
+      navigation.applyRbacUi(cachedRole);
       userDisplayRole.textContent = cachedRole === 'Admin' ? 'مدير نظام (Admin)' : 'مستخدم (User)';
     }
 
@@ -6110,7 +6055,7 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
         localStorage.setItem(STORAGE_KEYS.currentUsername, dashboardState.currentUser.username);
         localStorage.setItem(STORAGE_KEYS.currentUserId, String(dashboardState.currentUser.id));
 
-        applyRbacUi(dashboardState.currentUser.role);
+        navigation.applyRbacUi(dashboardState.currentUser.role);
 
         if (info.logId) {
           localStorage.setItem(STORAGE_KEYS.logId, String(info.logId));
