@@ -2,6 +2,7 @@ import { api } from './dashboard/api.js';
 import { getBookingTypeBadge, getPaymentStatusBadge, getReservationStatusBadge, getRoomStatusBadge } from './dashboard/badges.js';
 import { STORAGE_KEYS } from './dashboard/constants.js';
 import { createNavigation } from './dashboard/navigation.js';
+import { createEditGuestModal } from './dashboard/guest-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -2658,32 +2659,16 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     });
   }
 
-  // =========================================================================
-  // EDIT GUEST MODAL
-  // =========================================================================
-  function openEditGuestModal(guestId) {
-    const targetId = parseInt(guestId, 10);
-    if (!targetId || isNaN(targetId)) return;
-
-    const guest = (dashboardState.guestsCache || []).find(g => g.id === targetId);
-    if (!guest) {
-      showToast('بيانات النزيل غير متوفرة في الصفحة الحالية.', 'error');
-      return;
-    }
-
-    if (editGuestId) editGuestId.value = guest.id;
-    if (editGuestName) editGuestName.value = guest.name || '';
-    if (editGuestPhone) editGuestPhone.value = guest.phone || '';
-    if (editGuestIdNumber) editGuestIdNumber.value = guest.id_number || '';
-
-    if (editGuestModal) editGuestModal.style.display = 'flex';
-    if (editGuestName) editGuestName.focus();
-  }
-
-  function closeEditGuestModal() {
-    if (editGuestModal) editGuestModal.style.display = 'none';
-    if (editGuestForm) editGuestForm.reset();
-  }
+  const { openEditGuestModal, closeEditGuestModal } = createEditGuestModal({
+    getGuests: () => dashboardState.guestsCache,
+    modal: editGuestModal,
+    form: editGuestForm,
+    idInput: editGuestId,
+    nameInput: editGuestName,
+    phoneInput: editGuestPhone,
+    idNumberInput: editGuestIdNumber,
+    showToast
+  });
 
   if (btnCloseEditGuest) btnCloseEditGuest.addEventListener('click', closeEditGuestModal);
   if (btnCancelEditGuest) btnCancelEditGuest.addEventListener('click', closeEditGuestModal);
