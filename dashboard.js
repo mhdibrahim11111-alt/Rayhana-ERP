@@ -9,6 +9,7 @@ import { createAddPaymentModal } from './dashboard/payment-modal.js';
 import { createContractSettlementModal } from './dashboard/contract-settlement-modal.js';
 import { createExtendStayModal } from './dashboard/extend-stay-modal.js';
 import { createInvoiceModal } from './dashboard/invoice-modal.js';
+import { createShiftAuditModal } from './dashboard/shift-audit-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -3081,7 +3082,7 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     refreshReservations: loadReservationsData,
     refreshRooms: loadRoomsData,
     refreshTodayCheckouts: loadTodayCheckouts,
-    openInvoiceModal
+    openInvoiceModal: reservationId => openInvoiceModal(reservationId)
   });
   const { openContractSettleModal, closeContractSettleModal } = contractSettlement;
 
@@ -3392,10 +3393,6 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   // =========================================================================
   // SHIFT AUDIT & NIGHT CLOSING (FEATURE 5 - DATE RANGES & PRESETS)
   // =========================================================================
-  let currentShiftAuditPreset = 'today';
-  let currentShiftAuditStartDate = null;
-  let currentShiftAuditEndDate = null;
-
   const ARABIC_MONTHS = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
@@ -3418,123 +3415,6 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
       return `${d1} ${ARABIC_MONTHS[m1 - 1] || ''} - ${d2} ${ARABIC_MONTHS[m2 - 1] || ''} ${y1}`;
     }
     return `${d1} ${ARABIC_MONTHS[m1 - 1] || ''} ${y1} - ${d2} ${ARABIC_MONTHS[m2 - 1] || ''} ${y2}`;
-  }
-
-  function getShiftAuditPresetDates(preset) {
-    const todayObj = new Date();
-    const todayStr = getLocalDateString(todayObj);
-
-    switch (preset) {
-      case 'today':
-        return { startDate: todayStr, endDate: todayStr };
-
-      case 'week': {
-        // Current week starting Saturday (Saudi Arabia standard)
-        const day = todayObj.getDay(); // 0: Sun, 1: Mon, ..., 5: Fri, 6: Sat
-        const diffToSat = (day + 1) % 7;
-        const startOfWeek = new Date(todayObj);
-        startOfWeek.setDate(todayObj.getDate() - diffToSat);
-        return { startDate: getLocalDateString(startOfWeek), endDate: todayStr };
-      }
-
-      case 'month': {
-        // First day of current month to today
-        const startOfMonth = new Date(todayObj.getFullYear(), todayObj.getMonth(), 1);
-        return { startDate: getLocalDateString(startOfMonth), endDate: todayStr };
-      }
-
-      case 'quarter': {
-        // First day of current 3-month quarter to today
-        const currentMonth = todayObj.getMonth();
-        const quarterStartMonth = Math.floor(currentMonth / 3) * 3;
-        const startOfQuarter = new Date(todayObj.getFullYear(), quarterStartMonth, 1);
-        return { startDate: getLocalDateString(startOfQuarter), endDate: todayStr };
-      }
-
-      default:
-        return { startDate: todayStr, endDate: todayStr };
-    }
-  }
-
-  function ensureShiftAuditFilterBar() {
-    let filterBar = document.getElementById('shift-audit-filter-bar');
-    if (!filterBar && shiftAuditContent && shiftAuditContent.parentNode) {
-      filterBar = document.createElement('div');
-      filterBar.id = 'shift-audit-filter-bar';
-      filterBar.className = 'no-print';
-      filterBar.style.cssText = 'background: #1e293b; color: white; padding: 12px 24px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; direction: rtl;';
-      filterBar.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <span style="font-weight: 700; font-size: 0.85rem; color: #94a3b8;">فترة التقرير:</span>
-          <div class="audit-preset-pills" style="display: inline-flex; gap: 4px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
-            <button type="button" class="btn-audit-preset" data-preset="today" style="border: none; background: #1a4332; color: #a7f3d0; padding: 6px 14px; border-radius: 6px; font-weight: 800; font-size: 0.82rem; cursor: pointer; transition: all 0.15s;">اليوم</button>
-            <button type="button" class="btn-audit-preset" data-preset="week" style="border: none; background: transparent; color: #cbd5e1; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s;">هذا الأسبوع</button>
-            <button type="button" class="btn-audit-preset" data-preset="month" style="border: none; background: transparent; color: #cbd5e1; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s;">هذا الشهر</button>
-            <button type="button" class="btn-audit-preset" data-preset="quarter" style="border: none; background: transparent; color: #cbd5e1; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s;">هذا الربع</button>
-            <button type="button" class="btn-audit-preset" data-preset="custom" style="border: none; background: transparent; color: #cbd5e1; padding: 6px 14px; border-radius: 6px; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s;">فترة مخصصة</button>
-          </div>
-        </div>
-        <div id="shift-audit-custom-dates" style="display: none; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <span style="font-size: 0.8rem; color: #cbd5e1;">من:</span>
-          <input type="date" id="shift-audit-custom-start" style="padding: 5px 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 0.82rem; font-family: monospace;">
-          <span style="font-size: 0.8rem; color: #cbd5e1;">إلى:</span>
-          <input type="date" id="shift-audit-custom-end" style="padding: 5px 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 0.82rem; font-family: monospace;">
-          <button type="button" id="btn-apply-audit-custom" class="btn btn-sm" style="background: #1a4332; color: #a7f3d0; border: 1px solid #34d399; font-weight: 800; padding: 5px 12px; border-radius: 6px; cursor: pointer;">تطبيق</button>
-        </div>
-      `;
-
-      shiftAuditContent.parentNode.insertBefore(filterBar, shiftAuditContent);
-
-      const presetButtons = filterBar.querySelectorAll('.btn-audit-preset');
-      const customDatesBox = filterBar.querySelector('#shift-audit-custom-dates');
-      const customStartInput = filterBar.querySelector('#shift-audit-custom-start');
-      const customEndInput = filterBar.querySelector('#shift-audit-custom-end');
-      const btnApplyCustom = filterBar.querySelector('#btn-apply-audit-custom');
-
-      presetButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const preset = btn.dataset.preset;
-          currentShiftAuditPreset = preset;
-
-          presetButtons.forEach(b => {
-            const isActive = b === btn;
-            b.style.background = isActive ? '#1a4332' : 'transparent';
-            b.style.color = isActive ? '#a7f3d0' : '#cbd5e1';
-            b.style.fontWeight = isActive ? '800' : '600';
-          });
-
-          if (preset === 'custom') {
-            if (customDatesBox) customDatesBox.style.display = 'flex';
-            if (customStartInput && !customStartInput.value) {
-              customStartInput.value = currentShiftAuditStartDate || getLocalDateString();
-            }
-            if (customEndInput && !customEndInput.value) {
-              customEndInput.value = currentShiftAuditEndDate || getLocalDateString();
-            }
-          } else {
-            if (customDatesBox) customDatesBox.style.display = 'none';
-            const dates = getShiftAuditPresetDates(preset);
-            currentShiftAuditStartDate = dates.startDate;
-            currentShiftAuditEndDate = dates.endDate;
-            await renderShiftAuditData(dates.startDate, dates.endDate);
-          }
-        });
-      });
-
-      if (btnApplyCustom) {
-        btnApplyCustom.addEventListener('click', async () => {
-          const s = customStartInput ? customStartInput.value : '';
-          const e = customEndInput ? customEndInput.value : '';
-          if (!s || !e) {
-            showToast('يرجى تحديد تاريخ البداية والنهاية للفترة المخصصة.', 'warning');
-            return;
-          }
-          currentShiftAuditStartDate = s;
-          currentShiftAuditEndDate = e;
-          await renderShiftAuditData(s, e);
-        });
-      }
-    }
   }
 
   async function renderShiftAuditData(startDate, endDate) {
@@ -3728,60 +3608,24 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
     }
   }
 
-  async function openShiftAuditModal(targetDateOrOptions) {
-    try {
-      ensureShiftAuditFilterBar();
-
-      let startDate = null;
-      let endDate = null;
-
-      if (targetDateOrOptions && typeof targetDateOrOptions === 'object') {
-        startDate = targetDateOrOptions.startDate || targetDateOrOptions.date;
-        endDate = targetDateOrOptions.endDate || startDate;
-        currentShiftAuditPreset = targetDateOrOptions.preset || (startDate === endDate ? 'today' : 'custom');
-      } else if (typeof targetDateOrOptions === 'string' && targetDateOrOptions.trim() !== '') {
-        startDate = targetDateOrOptions.trim();
-        endDate = startDate;
-        currentShiftAuditPreset = (startDate === getLocalDateString()) ? 'today' : 'custom';
-      } else {
-        currentShiftAuditPreset = 'today';
-        const dates = getShiftAuditPresetDates('today');
-        startDate = dates.startDate;
-        endDate = dates.endDate;
-      }
-
-      currentShiftAuditStartDate = startDate;
-      currentShiftAuditEndDate = endDate;
-
-      const filterBar = document.getElementById('shift-audit-filter-bar');
-      if (filterBar) {
-        const presetButtons = filterBar.querySelectorAll('.btn-audit-preset');
-        presetButtons.forEach(b => {
-          const isActive = b.dataset.preset === currentShiftAuditPreset;
-          b.style.background = isActive ? '#1a4332' : 'transparent';
-          b.style.color = isActive ? '#a7f3d0' : '#cbd5e1';
-          b.style.fontWeight = isActive ? '800' : '600';
-        });
-        const customDatesBox = filterBar.querySelector('#shift-audit-custom-dates');
-        const customStartInput = filterBar.querySelector('#shift-audit-custom-start');
-        const customEndInput = filterBar.querySelector('#shift-audit-custom-end');
-        if (customDatesBox) {
-          customDatesBox.style.display = currentShiftAuditPreset === 'custom' ? 'flex' : 'none';
-        }
-        if (customStartInput) customStartInput.value = startDate;
-        if (customEndInput) customEndInput.value = endDate;
-      }
-
-      await renderShiftAuditData(startDate, endDate);
-
-      if (shiftAuditModal) {
-        shiftAuditModal.style.display = 'flex';
-      }
-    } catch (err) {
-      console.error('Shift audit error:', err);
-      showToast(`خطأ في تقرير الإقفال: ${err.message}`, 'error');
-    }
-  }
+  const shiftAudit = createShiftAuditModal({
+    api,
+    elements: {
+      modal: shiftAuditModal,
+      openButton: btnOpenShiftAudit,
+      closeButton: btnCloseShiftAudit,
+      printButton: btnPrintShiftAudit,
+      exportButton: btnExportPdfShiftAudit,
+      previewButton: btnPreviewWindowShiftAudit,
+      content: shiftAuditContent
+    },
+    renderReport: renderShiftAuditData,
+    formatDateRange: formatArabicDateRange,
+    showToast,
+    printIsolatedElement,
+    getTodayDate: () => getLocalDateString()
+  });
+  const { openShiftAuditModal } = shiftAudit;
 
   // =========================================================================
   // Isolated Element Printing Engine (Prevents any UI leakage)
@@ -3870,86 +3714,6 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
       }
     });
   }
-  // Shift Audit Handlers
-  if (btnOpenShiftAudit) {
-    btnOpenShiftAudit.addEventListener('click', () => openShiftAuditModal());
-  }
-  if (btnCloseShiftAudit) {
-    btnCloseShiftAudit.addEventListener('click', () => {
-      if (shiftAuditModal) shiftAuditModal.style.display = 'none';
-      document.body.classList.remove('printing-invoice', 'printing-shift-audit');
-    });
-  }
-  if (shiftAuditModal) {
-    shiftAuditModal.addEventListener('click', (e) => {
-      if (e.target === shiftAuditModal) {
-        shiftAuditModal.style.display = 'none';
-        document.body.classList.remove('printing-invoice', 'printing-shift-audit');
-      }
-    });
-  }
-  if (btnPrintShiftAudit) {
-    btnPrintShiftAudit.addEventListener('click', () => {
-      const isMultiDay = currentShiftAuditStartDate && currentShiftAuditEndDate && currentShiftAuditStartDate !== currentShiftAuditEndDate;
-      const title = isMultiDay
-        ? `تقرير إقفال الفترة (${formatArabicDateRange(currentShiftAuditStartDate, currentShiftAuditEndDate)})`
-        : 'تقرير إقفال الوردية والموازنة المالية';
-      printIsolatedElement(shiftAuditContent ? shiftAuditContent.innerHTML : '', title, false);
-    });
-  }
-  if (btnExportPdfShiftAudit) {
-    btnExportPdfShiftAudit.addEventListener('click', async () => {
-      try {
-        if (!shiftAuditContent || !shiftAuditContent.innerHTML.trim()) {
-          showToast('لا توجد بيانات تقرير لتصديرها.', 'error');
-          return;
-        }
-        showToast('جاري إنشاء وحفظ تقرير الوردية بصيغة PDF...', 'info');
-        const isMultiDay = currentShiftAuditStartDate && currentShiftAuditEndDate && currentShiftAuditStartDate !== currentShiftAuditEndDate;
-        const title = isMultiDay
-          ? `تقرير إقفال الفترة (${formatArabicDateRange(currentShiftAuditStartDate, currentShiftAuditEndDate)})`
-          : 'تقرير إقفال الوردية والموازنة المالية';
-        const defaultFilename = isMultiDay
-          ? `shift_audit_${currentShiftAuditStartDate}_to_${currentShiftAuditEndDate}.pdf`
-          : `shift_audit_${getLocalDateString()}.pdf`;
-
-        const res = await api.printToPdf({
-          html: shiftAuditContent.innerHTML,
-          title: title,
-          defaultFilename: defaultFilename
-        });
-        if (res && res.canceled) return;
-        if (res && res.success) {
-          showToast(`تم تصدير وحفظ تقرير الوردية بنجاح في: ${res.filePath}`, 'success');
-        } else {
-          showToast(res?.error || 'فشل تصدير ملف PDF.', 'error');
-        }
-      } catch (err) {
-        showToast(`خطأ أثناء تصدير PDF: ${err.message}`, 'error');
-      }
-    });
-  }
-  if (btnPreviewWindowShiftAudit) {
-    btnPreviewWindowShiftAudit.addEventListener('click', async () => {
-      try {
-        if (!shiftAuditContent || !shiftAuditContent.innerHTML.trim()) {
-          showToast('لا توجد بيانات تقرير للمعاينة.', 'error');
-          return;
-        }
-        const isMultiDay = currentShiftAuditStartDate && currentShiftAuditEndDate && currentShiftAuditStartDate !== currentShiftAuditEndDate;
-        const title = isMultiDay
-          ? `معاينة تقرير إقفال الفترة (${formatArabicDateRange(currentShiftAuditStartDate, currentShiftAuditEndDate)})`
-          : 'معاينة تقرير إقفال الوردية والموازنة المالية';
-        await api.openPrintPreviewWindow({
-          html: shiftAuditContent.innerHTML,
-          title: title
-        });
-      } catch (err) {
-        showToast(`تعذر فتح نافذة المعاينة: ${err.message}`, 'error');
-      }
-    });
-  }
-
   // Backup & Restore Database Handlers (Feature 4)
   if (btnBackupDb) {
     btnBackupDb.addEventListener('click', async () => {
