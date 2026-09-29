@@ -1,0 +1,27 @@
+{
+  "functionCount": 578,
+  "windowApiCallCount": 7,
+  "arabicStatusStringCounts": {
+    "roomAvailable": 36,
+    "roomOccupied": 38,
+    "roomReserved": 20,
+    "roomCleaning": 21,
+    "bookingOpenContract": 31,
+    "paymentMethodCash": 30,
+    "reservationConfirmed": 26,
+    "reservationCompleted": 14,
+    "reservationCancelled": 30,
+    "reservationPartiallyCancelled": 7,
+    "paymentUnpaid": 7,
+    "paymentPartiallyPaid": 12,
+    "paymentFullyPaid": 15,
+    "paymentCredit": 13,
+    "paymentRefunded": 1
+  },
+  "localStorageKeyCounts": {
+    "ahmed_hotel_log_id": 6,
+    "currentUserId": 7,
+    "currentUsername": 5,
+    "currentUserRole": 18
+  }
+}
