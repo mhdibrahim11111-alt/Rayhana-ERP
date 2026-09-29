@@ -5,6 +5,7 @@ import { createNavigation } from './dashboard/navigation.js';
 import { createEditGuestModal } from './dashboard/guest-modal.js';
 import { createEditRoomModal } from './dashboard/room-modal.js';
 import { createFactoryResetModal } from './dashboard/factory-reset-modal.js';
+import { createAddPaymentModal } from './dashboard/payment-modal.js';
 import { createRoomRevenueModal } from './dashboard/room-revenue-modal.js';
 import { dashboardState } from './dashboard/state.js';
 import { showConfirmDialog, showPromptDialog, showToast } from './dashboard/ui.js';
@@ -2982,197 +2983,31 @@ import { escapeHtml, getLocalDateString } from './dashboard/utils.js';
   const btnCancelPaymentModal = document.getElementById('btn-cancel-payment-modal');
   const btnPayFullRemaining = document.getElementById('btn-pay-full-remaining');
 
-  let currentPayingReservation = null;
-
-  window.openAddPaymentModal = async function openAddPaymentModal(reservationId) {
-    const modal = document.getElementById('add-payment-modal');
-    if (!modal) {
-      console.error('Modal #add-payment-modal not found in DOM');
-      return;
-    }
-
-    const targetId = parseInt(reservationId, 10);
-    if (!targetId || isNaN(targetId)) {
-      showToast('رقم الحجز غير صالح.', 'error');
-      return;
-    }
-
-    // Find in cache or fetch
-    let res = (dashboardState.reservationsCache || []).find(r => parseInt(r.id, 10) === targetId);
-    if (!res) {
-      try {
-        const allRes = await api.getAllReservations();
-        if (allRes && allRes.success && allRes.data) {
-          dashboardState.reservationsCache = allRes.data;
-          res = dashboardState.reservationsCache.find(r => parseInt(r.id, 10) === targetId);
-        }
-      } catch (err) {
-        console.error('Error fetching reservation for payment:', err);
-      }
-    }
-
-    if (!res) {
-      showToast('تعذر العثور على بيانات الحجز المطلوب.', 'error');
-      return;
-    }
-
-    currentPayingReservation = res;
-    const isContract = res.booking_type === 'عقد مفتوح';
-    const total = Math.round((parseFloat(res.total_price || 0) + Number.EPSILON) * 100) / 100;
-    const paid = Math.round((parseFloat(res.paid_amount || 0) + Number.EPSILON) * 100) / 100;
-    const rawRemaining = Math.round((total - paid + Number.EPSILON) * 100) / 100;
-    const remaining = isContract ? rawRemaining : Math.max(0, rawRemaining);
-
-    const inputResId = document.getElementById('payment-reservation-id');
-    const nameEl = document.getElementById('payment-modal-guest-name');
-    const roomEl = document.getElementById('payment-modal-room-info');
-    const totalEl = document.getElementById('payment-modal-total-price');
-    const paidEl = document.getElementById('payment-modal-paid-amount');
-    const remEl = document.getElementById('payment-modal-remaining-balance');
-    const inputAmount = document.getElementById('payment-new-amount');
-
-    if (inputResId) inputResId.value = res.id;
-    if (nameEl) nameEl.textContent = res.guest_name || 'نزيل';
-    if (roomEl) roomEl.textContent = `حجز #${res.id} - غرفة ${res.room_number || '-'}${isContract ? ' (عقد مفتوح)' : ''}`;
-    if (totalEl) totalEl.textContent = `${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ريال`;
-    if (paidEl) paidEl.textContent = `${paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ريال`;
-    if (remEl) {
-      if (isContract && remaining < -0.005) {
-        remEl.textContent = `رصيد دائن: ${Math.abs(remaining).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ريال`;
-        remEl.style.color = '#2563eb';
-      } else {
-        remEl.textContent = `${remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ريال`;
-        remEl.style.color = remaining > 0 ? '#dc2626' : '#059669';
-      }
-    }
-
-    if (inputAmount) {
-      if (isContract) {
-        inputAmount.value = remaining > 0 ? remaining.toFixed(2) : '';
-        inputAmount.removeAttribute('max');
-      } else {
-        inputAmount.value = remaining > 0 ? remaining.toFixed(2) : '';
-        inputAmount.max = remaining > 0 ? remaining.toFixed(2) : '';
-      }
-    }
-
-    modal.style.display = 'flex';
-    setTimeout(() => {
-      if (inputAmount) {
-        inputAmount.focus();
-        inputAmount.select();
-      }
-    }, 50);
-  };
-
-  function closeAddPaymentModal() {
-    if (addPaymentModal) {
-      addPaymentModal.style.display = 'none';
-    }
-    if (addPaymentForm) {
-      addPaymentForm.reset();
-    }
-    currentPayingReservation = null;
-  }
-
-  if (btnClosePaymentModal) {
-    btnClosePaymentModal.addEventListener('click', closeAddPaymentModal);
-  }
-
-  if (btnCancelPaymentModal) {
-    btnCancelPaymentModal.addEventListener('click', closeAddPaymentModal);
-  }
-
-  if (addPaymentModal) {
-    addPaymentModal.addEventListener('click', (e) => {
-      if (e.target === addPaymentModal) closeAddPaymentModal();
-    });
-  }
-
-  if (btnPayFullRemaining) {
-    btnPayFullRemaining.addEventListener('click', () => {
-      if (!currentPayingReservation) return;
-      const total = Math.round((parseFloat(currentPayingReservation.total_price || 0) + Number.EPSILON) * 100) / 100;
-      const paid = Math.round((parseFloat(currentPayingReservation.paid_amount || 0) + Number.EPSILON) * 100) / 100;
-      const isContract = currentPayingReservation.booking_type === 'عقد مفتوح';
-      const rawRemaining = Math.round((total - paid + Number.EPSILON) * 100) / 100;
-      const remaining = isContract ? Math.max(0, rawRemaining) : Math.max(0, rawRemaining);
-      if (paymentNewAmount && remaining > 0) {
-        paymentNewAmount.value = remaining.toFixed(2);
-        paymentNewAmount.focus();
-      }
-    });
-  }
-
-  if (addPaymentForm) {
-    addPaymentForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const resId = parseInt(paymentReservationId.value, 10);
-      const newAmount = Math.round((parseFloat(paymentNewAmount.value) + Number.EPSILON) * 100) / 100;
-      const method = paymentMethodSelectModal ? paymentMethodSelectModal.value : 'نقداً';
-
-      if (!resId || isNaN(resId)) {
-        showToast('معرف الحجز غير صالح.', 'error');
-        return;
-      }
-      if (!Number.isFinite(newAmount) || newAmount <= 0) {
-        showToast('يرجى إدخال مبلغ سداد صحيح وموجب أكبر من الصفر.', 'error');
-        return;
-      }
-
-      if (currentPayingReservation && currentPayingReservation.booking_type !== 'عقد مفتوح') {
-        const total = Math.round((parseFloat(currentPayingReservation.total_price || 0) + Number.EPSILON) * 100) / 100;
-        const paid = Math.round((parseFloat(currentPayingReservation.paid_amount || 0) + Number.EPSILON) * 100) / 100;
-        const remaining = Math.max(0, Math.round((total - paid + Number.EPSILON) * 100) / 100);
-        if (newAmount - remaining > 0.005) {
-          showToast(`المبلغ المدخل (${newAmount.toLocaleString()} ريال) يتجاوز الرصيد المتبقي المستحق (${remaining.toLocaleString()} ريال).`, 'error');
-          return;
-        }
-      }
-
-      const activeUserId = localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null);
-
-      try {
-        const btnSave = document.getElementById('btn-save-payment');
-        if (btnSave) {
-          btnSave.disabled = true;
-          btnSave.textContent = 'جاري الحفظ...';
-        }
-
-        const res = await api.addPayment({
-          reservationId: resId,
-          newAmount: newAmount,
-          paymentMethod: method,
-          userId: activeUserId ? parseInt(activeUserId, 10) : null
-        });
-
-        if (res.success) {
-          const statusText = res.isFullyPaid || res.paymentStatus === 'مدفوع بالكامل' ? 'مدفوع بالكامل ✓' : 'مدفوع جزئياً';
-          const receiptMsg = res.receiptNumber ? ` (رقم السند: ${res.receiptNumber})` : '';
-          showToast(`تم تسجيل سداد مبلغ ${newAmount.toLocaleString()} ريال بنجاح!${receiptMsg} - [${statusText}]`, 'success');
-          closeAddPaymentModal();
-
-          // Refresh reservations, overview, and rooms data
-          await Promise.all([
-            loadReservationsData(),
-            loadOverviewData(),
-            loadRoomsData()
-          ]);
-        } else {
-          showToast(res.error || 'فشل تسجيل الدفعة.', 'error');
-        }
-      } catch (err) {
-        console.error('Payment submit error:', err);
-        showToast(`خطأ أثناء تسجيل الدفعة: ${err.message}`, 'error');
-      } finally {
-        const btnSave = document.getElementById('btn-save-payment');
-        if (btnSave) {
-          btnSave.disabled = false;
-          btnSave.innerHTML = '<span>حفظ وتأكيد السداد ✓</span>';
-        }
-      }
-    });
-  }
+  const { openAddPaymentModal } = createAddPaymentModal({
+    api,
+    getReservations: () => dashboardState.reservationsCache,
+    setReservations: reservations => { dashboardState.reservationsCache = reservations; },
+    getActiveUserId: () => localStorage.getItem(STORAGE_KEYS.currentUserId) || (dashboardState.currentUser ? dashboardState.currentUser.id : null),
+    showToast,
+    refreshReservations: loadReservationsData,
+    refreshOverview: loadOverviewData,
+    refreshRooms: loadRoomsData,
+    modal: addPaymentModal,
+    form: addPaymentForm,
+    reservationIdInput: paymentReservationId,
+    guestName: paymentModalGuestName,
+    roomInfo: paymentModalRoomInfo,
+    totalPrice: paymentModalTotalPrice,
+    paidAmount: paymentModalPaidAmount,
+    remainingBalance: paymentModalRemainingBalance,
+    newAmount: paymentNewAmount,
+    paymentMethod: paymentMethodSelectModal,
+    closeButton: btnClosePaymentModal,
+    cancelButton: btnCancelPaymentModal,
+    payFullButton: btnPayFullRemaining,
+    saveButton: document.getElementById('btn-save-payment')
+  });
+  window.openAddPaymentModal = openAddPaymentModal;
 
   // =========================================================================
   // OPEN CONTRACT SETTLEMENT & CHECKOUT MODAL
